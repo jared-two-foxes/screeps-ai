@@ -74,7 +74,7 @@ describe("harvester role", () => {
     assert.strictEqual(moveTarget, source);
   });
 
-  it("with 0 free capacity transitions to transferring and targets a spawn", () => {
+  it("with 0 free capacity transitions to transferring and targets a spawn when no storage exists", () => {
     const spawn = { id: "spawn1" };
     let findConstantSeen: number | null = null;
     let transferTarget: object | null = null;
@@ -82,6 +82,7 @@ describe("harvester role", () => {
 
     const creep = {
       memory: { role: "harvester", working: false },
+      room: { storage: undefined },
       store: {
         getUsedCapacity: (): number => 10,
         getFreeCapacity: (): number => 0
@@ -109,12 +110,13 @@ describe("harvester role", () => {
     assert.equal(transferResource, (global as any).RESOURCE_ENERGY);
   });
 
-  it("calls moveTo(spawn) when transfer returns ERR_NOT_IN_RANGE", () => {
+  it("calls moveTo(spawn) when transfer to spawn returns ERR_NOT_IN_RANGE", () => {
     const spawn = { id: "spawn1" };
     let moveTarget: object | null = null;
 
     const creep = {
       memory: { role: "harvester", working: true },
+      room: { storage: undefined },
       store: {
         getUsedCapacity: (): number => 10,
         getFreeCapacity: (): number => 0
@@ -133,6 +135,92 @@ describe("harvester role", () => {
     runHarvester(creep as any);
 
     assert.strictEqual(moveTarget, spawn);
+  });
+
+  it("prefers storage over spawn when storage has free capacity", () => {
+    const storage = { id: "storage1", store: { getFreeCapacity: (): number => 500 } };
+    const spawn = { id: "spawn1" };
+    let transferTarget: object | null = null;
+    let transferResource: ResourceConstant | null = null;
+
+    const creep = {
+      memory: { role: "harvester", working: false },
+      room: { storage },
+      store: {
+        getUsedCapacity: (): number => 10,
+        getFreeCapacity: (): number => 0
+      },
+      pos: {
+        findClosestByRange: (): object | null => spawn
+      },
+      harvest: (): number => 0,
+      moveTo: (): number => 0,
+      transfer: (target: object, resource: ResourceConstant): number => {
+        transferTarget = target;
+        transferResource = resource;
+        return 0;
+      }
+    };
+
+    runHarvester(creep as any);
+
+    assert.strictEqual(transferTarget, storage);
+    assert.equal(transferResource, (global as any).RESOURCE_ENERGY);
+  });
+
+  it("calls moveTo(storage) when transfer to storage returns ERR_NOT_IN_RANGE", () => {
+    const storage = { id: "storage1", store: { getFreeCapacity: (): number => 500 } };
+    let moveTarget: object | null = null;
+
+    const creep = {
+      memory: { role: "harvester", working: true },
+      room: { storage },
+      store: {
+        getUsedCapacity: (): number => 10,
+        getFreeCapacity: (): number => 0
+      },
+      pos: {
+        findClosestByRange: (): object | null => null
+      },
+      harvest: (): number => 0,
+      moveTo: (target: object): number => {
+        moveTarget = target;
+        return 0;
+      },
+      transfer: (): number => (global as any).ERR_NOT_IN_RANGE
+    };
+
+    runHarvester(creep as any);
+
+    assert.strictEqual(moveTarget, storage);
+  });
+
+  it("falls back to spawn when storage is full", () => {
+    const storage = { id: "storage1", store: { getFreeCapacity: (): number => 0 } };
+    const spawn = { id: "spawn1" };
+    let transferTarget: object | null = null;
+
+    const creep = {
+      memory: { role: "harvester", working: true },
+      room: { storage },
+      store: {
+        getUsedCapacity: (): number => 10,
+        getFreeCapacity: (): number => 0
+      },
+      pos: {
+        findClosestByRange: (): object | null => spawn
+      },
+      harvest: (): number => 0,
+      moveTo: (): number => 0,
+      transfer: (target: object): number => {
+        transferTarget = target;
+        return 0;
+      }
+    };
+
+    runHarvester(creep as any);
+
+    assert.strictEqual(transferTarget, spawn);
   });
 
   it("idles gracefully when no sources exist", () => {
@@ -170,6 +258,7 @@ describe("harvester role", () => {
 
     const creep = {
       memory: { role: "harvester", working: true },
+      room: { storage: undefined },
       store: {
         getUsedCapacity: (): number => 10,
         getFreeCapacity: (): number => 0
