@@ -137,7 +137,7 @@ describe("harvester role", () => {
     assert.strictEqual(moveTarget, spawn);
   });
 
-  it("prefers storage over spawn when storage has free capacity", () => {
+  it("chooses storage when storage is closer than spawn", () => {
     const storage = { id: "storage1", store: { getFreeCapacity: (): number => 500 } };
     const spawn = { id: "spawn1" };
     let transferTarget: object | null = null;
@@ -151,7 +151,8 @@ describe("harvester role", () => {
         getFreeCapacity: (): number => 0
       },
       pos: {
-        findClosestByRange: (): object | null => spawn
+        findClosestByRange: (): object | null => spawn,
+        getRangeTo: (target: { id: string }): number => (target.id === "storage1" ? 2 : 5)
       },
       harvest: (): number => 0,
       moveTo: (): number => 0,
@@ -166,6 +167,63 @@ describe("harvester role", () => {
 
     assert.strictEqual(transferTarget, storage);
     assert.equal(transferResource, (global as any).RESOURCE_ENERGY);
+  });
+
+  it("chooses spawn when spawn is closer than storage", () => {
+    const storage = { id: "storage1", store: { getFreeCapacity: (): number => 500 } };
+    const spawn = { id: "spawn1" };
+    let transferTarget: object | null = null;
+
+    const creep = {
+      memory: { role: "harvester", working: true },
+      room: { storage },
+      store: {
+        getUsedCapacity: (): number => 10,
+        getFreeCapacity: (): number => 0
+      },
+      pos: {
+        findClosestByRange: (): object | null => spawn,
+        getRangeTo: (target: { id: string }): number => (target.id === "spawn1" ? 1 : 4)
+      },
+      harvest: (): number => 0,
+      moveTo: (): number => 0,
+      transfer: (target: object): number => {
+        transferTarget = target;
+        return 0;
+      }
+    };
+
+    runHarvester(creep as any);
+
+    assert.strictEqual(transferTarget, spawn);
+  });
+
+  it("defaults safely when storage and spawn are at equal range", () => {
+    const storage = { id: "storage1", store: { getFreeCapacity: (): number => 500 } };
+    const spawn = { id: "spawn1" };
+    let transferTarget: object | null = null;
+
+    const creep = {
+      memory: { role: "harvester", working: true },
+      room: { storage },
+      store: {
+        getUsedCapacity: (): number => 10,
+        getFreeCapacity: (): number => 0
+      },
+      pos: {
+        findClosestByRange: (): object | null => spawn,
+        getRangeTo: (): number => 3
+      },
+      harvest: (): number => 0,
+      moveTo: (): number => 0,
+      transfer: (target: object): number => {
+        transferTarget = target;
+        return 0;
+      }
+    };
+
+    assert.doesNotThrow(() => runHarvester(creep as any));
+    assert.strictEqual(transferTarget, storage);
   });
 
   it("calls moveTo(storage) when transfer to storage returns ERR_NOT_IN_RANGE", () => {
@@ -221,6 +279,33 @@ describe("harvester role", () => {
     runHarvester(creep as any);
 
     assert.strictEqual(transferTarget, spawn);
+  });
+
+  it("falls back to storage when no spawns exist", () => {
+    const storage = { id: "storage1", store: { getFreeCapacity: (): number => 500 } };
+    let transferTarget: object | null = null;
+
+    const creep = {
+      memory: { role: "harvester", working: true },
+      room: { storage },
+      store: {
+        getUsedCapacity: (): number => 10,
+        getFreeCapacity: (): number => 0
+      },
+      pos: {
+        findClosestByRange: (): object | null => null
+      },
+      harvest: (): number => 0,
+      moveTo: (): number => 0,
+      transfer: (target: object): number => {
+        transferTarget = target;
+        return 0;
+      }
+    };
+
+    runHarvester(creep as any);
+
+    assert.strictEqual(transferTarget, storage);
   });
 
   it("idles gracefully when no sources exist", () => {
