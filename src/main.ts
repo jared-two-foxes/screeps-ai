@@ -1,6 +1,6 @@
 import { ErrorMapper } from "utils/ErrorMapper";
-import { runHarvester } from "roles/harvester";
-import { runUpgrader } from "roles/upgrader";
+import { evaluateTask } from "tasks/evaluator";
+import { runTask } from "tasks/runner";
 import { runSpawner } from "spawner";
 
 // When compiling TS to JS and bundling with rollup, the line numbers and file names in error messages change
@@ -19,10 +19,15 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
   for (const creepName in Game.creeps) {
     const creep = Game.creeps[creepName];
-    if (creep.memory.role === "harvester") {
-      runHarvester(creep);
-    } else if (creep.memory.role === "upgrader") {
-      runUpgrader(creep);
+
+    if (creep.memory.task == null) {
+      creep.memory.task = evaluateTask(creep);
+    }
+
+    const done = runTask(creep);
+    if (done) {
+      // Re-evaluate and store new task; it will execute on the next tick
+      creep.memory.task = evaluateTask(creep);
     }
   }
 });

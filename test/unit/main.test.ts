@@ -7,8 +7,8 @@ describe("main", () => {
   let originalConsoleLog: (...data: any[]) => void = console.log;
 
   const createUpgraderCreep = (overrides: any = {}): any => ({
-    memory: { role: "upgrader", working: true, ...(overrides.memory ?? {}) },
-    room: { controller: { id: "controller1" }, storage: undefined, ...(overrides.room ?? {}) },
+    memory: { role: "upgrader", ...(overrides.memory ?? {}) },
+    room: { controller: { id: "controller1" }, storage: undefined, find: (): object[] => [{}], ...(overrides.room ?? {}) },
     store: {
       getUsedCapacity: (): number => 10,
       getFreeCapacity: (): number => 0,
@@ -27,8 +27,8 @@ describe("main", () => {
   });
 
   const createHarvesterCreep = (overrides: any = {}): any => ({
-    memory: { role: "harvester", working: false, ...(overrides.memory ?? {}) },
-    room: { storage: undefined, ...(overrides.room ?? {}) },
+    memory: { role: "harvester", ...(overrides.memory ?? {}) },
+    room: { storage: undefined, find: (): object[] => [{}], ...(overrides.room ?? {}) },
     store: {
       getUsedCapacity: (): number => 0,
       getFreeCapacity: (): number => 10,

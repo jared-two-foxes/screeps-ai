@@ -62,7 +62,6 @@ describe("spawner", () => {
     }
     assert.equal(creepMemory.role, "harvester");
     assert.equal(creepMemory.room, "W1N1");
-    assert.isFalse(creepMemory.working);
   });
 
   it("spawns an upgrader when harvester threshold is met and upgrader threshold is not met", () => {
@@ -89,7 +88,6 @@ describe("spawner", () => {
     }
     assert.equal(creepMemory.role, "upgrader");
     assert.equal(creepMemory.room, "W1N1");
-    assert.isFalse(creepMemory.working);
   });
 
   it("does not spawn when both harvester and upgrader thresholds are met", () => {

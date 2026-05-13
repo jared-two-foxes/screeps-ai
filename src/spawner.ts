@@ -60,8 +60,7 @@ export const runSpawner = (): void => {
     const spawnResult = spawn.spawnCreep(plan.body, creepName, {
       memory: {
         role: plan.role,
-        room: spawn.room.name,
-        working: false
+        room: spawn.room.name
       }
     });
 

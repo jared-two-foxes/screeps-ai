@@ -13,7 +13,7 @@ const validUpgraderRole: CreepMemory["role"] = "upgrader";
 const invalidRole: CreepMemory["role"] = "builder";
 
 describe("types", () => {
-  it("accepts upgrader creep memory without an explicit working flag", () => {
+  it("accepts valid upgrader creep memory with only required fields", () => {
     assert.equal(upgraderMemoryWithoutWorking.role, validUpgraderRole);
   });
 
