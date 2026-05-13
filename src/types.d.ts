@@ -7,8 +7,8 @@ declare global {
   }
 
   interface CreepMemory {
-    role: string;
+    role: "harvester" | "upgrader";
     room: string;
-    working: boolean;
+    working?: boolean;
   }
 }
