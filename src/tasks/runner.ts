@@ -1,5 +1,8 @@
+import { runBuildTask } from "tasks/build";
 import { runDepositTask } from "tasks/deposit";
+import { runForageTask } from "tasks/forage";
 import { runHarvestTask } from "tasks/harvest";
+import { runHarvestAndDepositTask } from "tasks/harvestAndDeposit";
 import { runUpgradeTask } from "tasks/upgrade";
 
 /**
@@ -15,6 +18,12 @@ export const runTask = (creep: Creep): boolean => {
       return runDepositTask(creep);
     case "upgrade":
       return runUpgradeTask(creep);
+    case "harvestAndDeposit":
+      return runHarvestAndDepositTask(creep);
+    case "forage":
+      return runForageTask(creep);
+    case "build":
+      return runBuildTask(creep);
     default:
       return true; // missing/unknown task — force re-evaluation
   }

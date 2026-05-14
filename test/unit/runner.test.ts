@@ -26,7 +26,11 @@ describe("runTask", () => {
     (global as any).FIND_SOURCES = 1;
     (global as any).FIND_SOURCES_ACTIVE = 3;
     (global as any).FIND_MY_SPAWNS = 2;
+    (global as any).FIND_STRUCTURES = 4;
+    (global as any).FIND_DROPPED_RESOURCES = 5;
+    (global as any).FIND_CONSTRUCTION_SITES = 6;
     (global as any).RESOURCE_ENERGY = "energy";
+    (global as any).STRUCTURE_CONTAINER = "container";
     (global as any).ERR_NOT_IN_RANGE = -9;
     (global as any).ERR_FULL = -8;
   });
@@ -96,6 +100,98 @@ describe("runTask", () => {
 
     assert.isFalse(done);
     assert.equal(upgradeCalls, 1);
+  });
+
+  it("dispatches 'harvestAndDeposit' task: calls harvestAndDeposit behavior", () => {
+    let harvestCalls = 0;
+    const source = { id: "source1", pos: { findInRange: (): [] => [] } };
+
+    const creep = {
+      ...makeCreep("harvestAndDeposit", 0),
+      store: { getFreeCapacity: (): number => 10 },
+      pos: {
+        findClosestByRange: (): object => source,
+        getRangeTo: (): number => 1,
+        findInRange: (): [] => []
+      },
+      harvest: (): number => {
+        harvestCalls++;
+        return 0;
+      },
+      transfer: (): number => 0,
+      drop: (): number => 0,
+      moveTo: (): number => 0
+    };
+
+    const done = runTask(creep as any);
+
+    assert.isFalse(done);
+    assert.equal(harvestCalls, 1);
+  });
+
+  it("dispatches 'forage' task: calls forage behavior", () => {
+    let pickupCalls = 0;
+    const dropped = { id: "drop1", resourceType: (global as any).RESOURCE_ENERGY, amount: 50 };
+
+    const creep = {
+      ...makeCreep("forage", 0),
+      store: { getFreeCapacity: (): number => 10 },
+      pos: {
+        findClosestByRange: (findConstant: number): object | null => {
+          if (findConstant === (global as any).FIND_STRUCTURES) return null;
+          if (findConstant === (global as any).FIND_DROPPED_RESOURCES) return dropped;
+          return null;
+        }
+      },
+      withdraw: (): number => 0,
+      pickup: (): number => {
+        pickupCalls++;
+        return 0;
+      },
+      moveTo: (): number => 0
+    };
+
+    const done = runTask(creep as any);
+
+    assert.isFalse(done);
+    assert.equal(pickupCalls, 1);
+  });
+
+  it("dispatches 'build' task: calls build behavior", () => {
+    let buildCalls = 0;
+    const site = { id: "site1", structureType: "road" };
+
+    const creep = {
+      ...makeCreep("build", 10),
+      room: {
+        storage: undefined,
+        find: (findConstant: number): object[] => {
+          if (findConstant === (global as any).FIND_SOURCES) return [];
+          if (findConstant === (global as any).FIND_CONSTRUCTION_SITES) return [site];
+          return [];
+        },
+        createConstructionSite: (): number => 0,
+        getTerrain: () => ({ get: (): number => 0 }),
+        lookForAt: (): object[] => []
+      },
+      store: { getUsedCapacity: (): number => 10 },
+      pos: {
+        findClosestByRange: (findConstant: number): object | null =>
+          findConstant === (global as any).FIND_CONSTRUCTION_SITES ? site : null
+      },
+      build: (): number => {
+        buildCalls++;
+        return 0;
+      },
+      withdraw: (): number => 0,
+      moveTo: (): number => 0,
+      harvest: (): number => 0
+    };
+
+    const done = runTask(creep as any);
+
+    assert.isFalse(done);
+    assert.equal(buildCalls, 1);
   });
 
   // -------------------------------------------------------------------------

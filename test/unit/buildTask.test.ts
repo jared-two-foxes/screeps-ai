@@ -1,0 +1,408 @@
+import { assert } from "chai";
+import { runBuildTask } from "../../src/tasks/build";
+import { Game, Memory } from "./mock";
+
+describe("runBuildTask", () => {
+  beforeEach(() => {
+    // @ts-ignore
+    global.Game = _.clone(Game);
+    // @ts-ignore
+    global.Memory = _.clone(Memory);
+
+    (global as any).FIND_SOURCES = 1;
+    (global as any).FIND_STRUCTURES = 2;
+    (global as any).FIND_CONSTRUCTION_SITES = 3;
+    (global as any).STRUCTURE_CONTAINER = "container";
+    (global as any).STRUCTURE_SPAWN = "spawn";
+    (global as any).RESOURCE_ENERGY = "energy";
+    (global as any).ERR_NOT_IN_RANGE = -9;
+    (global as any).TERRAIN_MASK_WALL = 1;
+    (global as any).LOOK_STRUCTURES = "structure";
+    (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+  });
+
+  it("returns true only when no construction sites exist and all sources are container-covered", () => {
+    const sourceWithContainer = {
+      id: "source-1",
+      pos: {
+        x: 10,
+        y: 10,
+        findInRange: (findConstant: number): object[] =>
+          findConstant === (global as any).FIND_STRUCTURES
+            ? [{ structureType: (global as any).STRUCTURE_CONTAINER }]
+            : []
+      }
+    };
+    const sourceWithContainerSite = {
+      id: "source-2",
+      pos: {
+        x: 20,
+        y: 20,
+        findInRange: (findConstant: number): object[] =>
+          findConstant === (global as any).FIND_CONSTRUCTION_SITES
+            ? [{ structureType: (global as any).STRUCTURE_CONTAINER }]
+            : []
+      }
+    };
+
+    let createCalls = 0;
+    let buildCalls = 0;
+    let harvestCalls = 0;
+    let withdrawCalls = 0;
+
+    const room = {
+      storage: { store: { getUsedCapacity: (): number => 100 } },
+      find: (findConstant: number): object[] => {
+        if (findConstant === (global as any).FIND_SOURCES) return [sourceWithContainer, sourceWithContainerSite];
+        if (findConstant === (global as any).FIND_CONSTRUCTION_SITES) return [];
+        return [];
+      },
+      createConstructionSite: (): number => {
+        createCalls++;
+        return 0;
+      },
+      getTerrain: () => ({ get: (): number => 0 }),
+      lookForAt: (): object[] => []
+    };
+
+    const creep = {
+      room,
+      store: {
+        getUsedCapacity: (): number => 0
+      },
+      pos: {
+        findClosestByRange: (): null => null
+      },
+      build: (): number => {
+        buildCalls++;
+        return 0;
+      },
+      moveTo: (): number => 0,
+      harvest: (): number => {
+        harvestCalls++;
+        return 0;
+      },
+      withdraw: (): number => {
+        withdrawCalls++;
+        return 0;
+      }
+    };
+
+    const done = runBuildTask(creep as any);
+
+    assert.isTrue(done);
+    assert.equal(createCalls, 0);
+    assert.equal(buildCalls, 0);
+    assert.equal(harvestCalls, 0);
+    assert.equal(withdrawCalls, 0);
+  });
+
+  it("does not return true when an unrelated non-container construction site exists", () => {
+    const sourceWithContainer = {
+      id: "source-1",
+      pos: {
+        x: 10,
+        y: 10,
+        findInRange: (findConstant: number): object[] =>
+          findConstant === (global as any).FIND_STRUCTURES
+            ? [{ structureType: (global as any).STRUCTURE_CONTAINER }]
+            : []
+      }
+    };
+
+    const roadSite = { id: "site-road", structureType: "road" };
+
+    const room = {
+      storage: undefined,
+      find: (findConstant: number): object[] => {
+        if (findConstant === (global as any).FIND_SOURCES) return [sourceWithContainer];
+        if (findConstant === (global as any).FIND_CONSTRUCTION_SITES) return [roadSite];
+        return [];
+      },
+      createConstructionSite: (): number => 0,
+      getTerrain: () => ({ get: (): number => 0 }),
+      lookForAt: (): object[] => []
+    };
+
+    const creep = {
+      room,
+      store: { getUsedCapacity: (): number => 50 },
+      pos: {
+        findClosestByRange: (findConstant: number): object | null =>
+          findConstant === (global as any).FIND_CONSTRUCTION_SITES ? roadSite : null
+      },
+      build: (): number => 0,
+      moveTo: (): number => 0,
+      harvest: (): number => 0,
+      withdraw: (): number => 0
+    };
+
+    assert.isFalse(runBuildTask(creep as any));
+  });
+
+  it("attempts exactly one container construction-site placement per uncovered source", () => {
+    const coveredSource = {
+      id: "source-covered",
+      pos: {
+        x: 6,
+        y: 6,
+        findInRange: (findConstant: number): object[] =>
+          findConstant === (global as any).FIND_STRUCTURES
+            ? [{ structureType: (global as any).STRUCTURE_CONTAINER }]
+            : []
+      }
+    };
+
+    const uncoveredA = {
+      id: "source-a",
+      pos: {
+        x: 10,
+        y: 10,
+        findInRange: (): object[] => []
+      }
+    };
+
+    const uncoveredB = {
+      id: "source-b",
+      pos: {
+        x: 20,
+        y: 20,
+        findInRange: (): object[] => []
+      }
+    };
+
+    const createCalls: Array<{ x: number; y: number; type: string }> = [];
+
+    const room = {
+      storage: undefined,
+      find: (findConstant: number): object[] => {
+        if (findConstant === (global as any).FIND_SOURCES) return [coveredSource, uncoveredA, uncoveredB];
+        if (findConstant === (global as any).FIND_CONSTRUCTION_SITES) return [{ id: "site-1", structureType: "road" }];
+        return [];
+      },
+      createConstructionSite: (x: number, y: number, type: string): number => {
+        createCalls.push({ x, y, type });
+        return 0;
+      },
+      getTerrain: () => ({ get: (): number => 0 }),
+      lookForAt: (): object[] => []
+    };
+
+    const creep = {
+      room,
+      store: { getUsedCapacity: (): number => 0 },
+      pos: {
+        findClosestByRange: (): null => null
+      },
+      build: (): number => 0,
+      moveTo: (): number => 0,
+      harvest: (): number => 0,
+      withdraw: (): number => 0
+    };
+
+    runBuildTask(creep as any);
+
+    assert.equal(createCalls.length, 2);
+    assert.isTrue(createCalls.every(c => c.type === (global as any).STRUCTURE_CONTAINER));
+  });
+
+  it("computes an open adjacent tile by excluding walls, blocking structures, and construction sites", () => {
+    const source = {
+      id: "source-open-tile",
+      pos: {
+        x: 10,
+        y: 10,
+        findInRange: (): object[] => []
+      }
+    };
+
+    const wallTiles = new Set(["9,9", "10,9", "11,9", "9,11", "10,11", "11,11", "11,10"]);
+    const blockingStructureTiles = new Set(["10,9"]);
+    const constructionSiteTiles = new Set(["11,9"]);
+
+    const createCalls: Array<{ x: number; y: number; type: string }> = [];
+
+    const room = {
+      storage: undefined,
+      find: (findConstant: number): object[] => {
+        if (findConstant === (global as any).FIND_SOURCES) return [source];
+        if (findConstant === (global as any).FIND_CONSTRUCTION_SITES) return [{ id: "site-1", structureType: "road" }];
+        return [];
+      },
+      createConstructionSite: (x: number, y: number, type: string): number => {
+        createCalls.push({ x, y, type });
+        return 0;
+      },
+      getTerrain: () => ({
+        get: (x: number, y: number): number =>
+          wallTiles.has(`${x},${y}`) ? (global as any).TERRAIN_MASK_WALL : 0
+      }),
+      lookForAt: (lookType: string, x: number, y: number): object[] => {
+        const key = `${x},${y}`;
+        if (lookType === (global as any).LOOK_STRUCTURES && blockingStructureTiles.has(key)) {
+          return [{ structureType: (global as any).STRUCTURE_SPAWN }];
+        }
+        if (lookType === (global as any).LOOK_CONSTRUCTION_SITES && constructionSiteTiles.has(key)) {
+          return [{ structureType: "road" }];
+        }
+        return [];
+      }
+    };
+
+    const creep = {
+      room,
+      store: { getUsedCapacity: (): number => 0 },
+      pos: {
+        findClosestByRange: (): null => null
+      },
+      build: (): number => 0,
+      moveTo: (): number => 0,
+      harvest: (): number => 0,
+      withdraw: (): number => 0
+    };
+
+    runBuildTask(creep as any);
+
+    assert.equal(createCalls.length, 1);
+    assert.deepEqual(createCalls[0], {
+      x: 9,
+      y: 10,
+      type: (global as any).STRUCTURE_CONTAINER
+    });
+  });
+
+  it("withdraws from storage when creep has no energy and storage has energy", () => {
+    const buildSite = { id: "site-1", structureType: "road" };
+    const storage = { id: "storage-1", store: { getUsedCapacity: (): number => 100 } };
+    let withdrawTarget: object | null = null;
+    let withdrawResource: ResourceConstant | null = null;
+
+    const room = {
+      storage,
+      find: (findConstant: number): object[] => {
+        if (findConstant === (global as any).FIND_SOURCES) return [];
+        if (findConstant === (global as any).FIND_CONSTRUCTION_SITES) return [buildSite];
+        return [];
+      },
+      createConstructionSite: (): number => 0,
+      getTerrain: () => ({ get: (): number => 0 }),
+      lookForAt: (): object[] => []
+    };
+
+    const creep = {
+      room,
+      store: { getUsedCapacity: (): number => 0 },
+      pos: {
+        findClosestByRange: (): null => null
+      },
+      build: (): number => 0,
+      moveTo: (): number => 0,
+      harvest: (): number => 0,
+      withdraw: (target: object, resource: ResourceConstant): number => {
+        withdrawTarget = target;
+        withdrawResource = resource;
+        return 0;
+      }
+    };
+
+    const done = runBuildTask(creep as any);
+
+    assert.isFalse(done);
+    assert.strictEqual(withdrawTarget, storage);
+    assert.equal(withdrawResource, (global as any).RESOURCE_ENERGY);
+  });
+
+  it("harvests from a source when creep has no energy and storage is unavailable", () => {
+    const buildSite = { id: "site-1", structureType: "road" };
+    const source = { id: "source-1", pos: { x: 10, y: 10, findInRange: (): object[] => [] } };
+    let harvestTarget: object | null = null;
+
+    const room = {
+      storage: undefined,
+      find: (findConstant: number): object[] => {
+        if (findConstant === (global as any).FIND_SOURCES) return [source];
+        if (findConstant === (global as any).FIND_CONSTRUCTION_SITES) return [buildSite];
+        return [];
+      },
+      createConstructionSite: (): number => 0,
+      getTerrain: () => ({ get: (): number => 0 }),
+      lookForAt: (): object[] => []
+    };
+
+    const creep = {
+      room,
+      store: { getUsedCapacity: (): number => 0 },
+      pos: {
+        findClosestByRange: (findConstant: number): object | null =>
+          findConstant === (global as any).FIND_SOURCES ? source : null
+      },
+      build: (): number => 0,
+      moveTo: (): number => 0,
+      harvest: (target: object): number => {
+        harvestTarget = target;
+        return 0;
+      },
+      withdraw: (): number => 0
+    };
+
+    const done = runBuildTask(creep as any);
+
+    assert.isFalse(done);
+    assert.strictEqual(harvestTarget, source);
+  });
+
+  it("builds nearest construction site when creep has energy and moves on ERR_NOT_IN_RANGE", () => {
+    const source = {
+      id: "source-1",
+      pos: {
+        x: 10,
+        y: 10,
+        findInRange: (findConstant: number): object[] =>
+          findConstant === (global as any).FIND_STRUCTURES
+            ? [{ structureType: (global as any).STRUCTURE_CONTAINER }]
+            : []
+      }
+    };
+    const nearSite = { id: "site-near", structureType: "road" };
+    const farSite = { id: "site-far", structureType: "extension" };
+    let buildTarget: object | null = null;
+    let moveTarget: object | null = null;
+
+    const room = {
+      storage: undefined,
+      find: (findConstant: number): object[] => {
+        if (findConstant === (global as any).FIND_SOURCES) return [source];
+        if (findConstant === (global as any).FIND_CONSTRUCTION_SITES) return [nearSite, farSite];
+        return [];
+      },
+      createConstructionSite: (): number => 0,
+      getTerrain: () => ({ get: (): number => 0 }),
+      lookForAt: (): object[] => []
+    };
+
+    const creep = {
+      room,
+      store: { getUsedCapacity: (): number => 25 },
+      pos: {
+        findClosestByRange: (findConstant: number): object | null =>
+          findConstant === (global as any).FIND_CONSTRUCTION_SITES ? nearSite : null
+      },
+      build: (target: object): number => {
+        buildTarget = target;
+        return (global as any).ERR_NOT_IN_RANGE;
+      },
+      moveTo: (target: object): number => {
+        moveTarget = target;
+        return 0;
+      },
+      harvest: (): number => 0,
+      withdraw: (): number => 0
+    };
+
+    const done = runBuildTask(creep as any);
+
+    assert.isFalse(done);
+    assert.strictEqual(buildTarget, nearSite);
+    assert.strictEqual(moveTarget, nearSite);
+  });
+});

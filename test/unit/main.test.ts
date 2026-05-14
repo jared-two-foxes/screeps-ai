@@ -60,6 +60,9 @@ describe("main", () => {
     (global as any).FIND_MY_SPAWNS = 2;
     (global as any).RESOURCE_ENERGY = "energy";
     (global as any).ERR_NOT_IN_RANGE = -9;
+    (global as any).OK = 0;
+    (global as any).FIND_STRUCTURES = 2;
+    (global as any).STRUCTURE_CONTAINER = "container";
 
     consoleLogs = [];
     originalConsoleLog = console.log;
@@ -102,7 +105,11 @@ describe("main", () => {
     let spawnCalls = 0;
     (global as any).Game.spawns = {
       Spawn1: {
-        room: { name: "W1N1" },
+        room: {
+          name: "W1N1",
+          energyCapacityAvailable: 300,
+          find: (): object[] => []
+        },
         spawning: null,
         spawnCreep: (): number => {
           spawnCalls++;

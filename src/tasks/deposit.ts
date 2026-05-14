@@ -11,8 +11,7 @@ export const runDepositTask = (creep: Creep): boolean => {
   if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) return true;
 
   const storage = creep.room.storage;
-  const hasAvailableStorage =
-    storage != null && (storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0) > 0;
+  const hasAvailableStorage = storage != null && (storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0) > 0;
   const spawn = creep.pos.findClosestByRange(FIND_MY_SPAWNS);
 
   let target: StructureSpawn | StructureStorage | null = null;

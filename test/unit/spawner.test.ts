@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { runSpawner } from "../../src/spawner";
+import { canUseStationaryStrategy, runSpawner } from "../../src/spawner";
 import { Game, Memory } from "./mock";
 
 interface SpawnCall {
@@ -8,31 +8,64 @@ interface SpawnCall {
   memory: CreepMemory | undefined;
 }
 
+interface MockRoom {
+  name: string;
+  energyCapacityAvailable: number;
+  find: (constant: number) => any[];
+}
+
 interface MockSpawn {
-  room: {
-    name: string;
-  };
+  room: MockRoom;
   spawning: object | null;
   calls: SpawnCall[];
   spawnCreep: (body: BodyPartConstant[], name: string, options: SpawnOptions) => number;
 }
 
-const createMockSpawn = (roomName: string, spawning: object | null, returnCode: number): MockSpawn => {
+interface MockSpawnOptions {
+  roomName?: string;
+  spawning?: object | null;
+  returnCode?: number;
+  energyCapacityAvailable?: number;
+  sources?: any[];
+}
+
+const createMockSpawn = (options: MockSpawnOptions = {}): MockSpawn => {
+  const roomName = options.roomName ?? "W1N1";
+  const spawning = options.spawning ?? null;
+  const returnCode = options.returnCode ?? 0;
+  const energyCapacityAvailable = options.energyCapacityAvailable ?? 300;
+  const sources = options.sources ?? [];
   const calls: SpawnCall[] = [];
   return {
-    room: { name: roomName },
+    room: {
+      name: roomName,
+      energyCapacityAvailable,
+      find: (constant: number): any[] => {
+        if (constant === (global as any).FIND_SOURCES) return sources;
+        return [];
+      }
+    },
     spawning,
     calls,
-    spawnCreep: (body: BodyPartConstant[], name: string, options: SpawnOptions): number => {
+    spawnCreep: (body: BodyPartConstant[], name: string, _opts: SpawnOptions): number => {
       calls.push({
         body,
         name,
-        memory: options.memory
+        memory: _opts.memory
       });
       return returnCode;
     }
   };
 };
+
+const makeSource = (adjacent: any[]): any => ({
+  pos: {
+    findInRange: (constant: number, _range: number): any[] => {
+      if (constant === (global as any).FIND_STRUCTURES) return adjacent;
+      return [];
+    }
+  }
+});
 
 describe("spawner", () => {
   beforeEach(() => {
@@ -40,142 +73,280 @@ describe("spawner", () => {
     global.Game = _.clone(Game);
     // @ts-ignore : allow adding Memory to global
     global.Memory = _.clone(Memory);
+    (global as any).FIND_SOURCES = 1;
+    (global as any).FIND_STRUCTURES = 2;
+    (global as any).STRUCTURE_CONTAINER = "container";
+    (global as any).OK = 0;
+    (global as any).ERR_NOT_ENOUGH_ENERGY = -6;
   });
 
-  it("spawns a harvester when below threshold", () => {
-    const spawn = createMockSpawn("W1N1", null, 0);
-    (global as any).Game.spawns = { Spawn1: spawn };
-    (global as any).Game.time = 12345;
+  describe("canUseStationaryStrategy", () => {
+    const buildRoom = (energyCapacityAvailable: number, sources: any[]): any => ({
+      energyCapacityAvailable,
+      find: (constant: number): any[] => (constant === (global as any).FIND_SOURCES ? sources : [])
+    });
 
-    runSpawner();
+    it("returns false when energy capacity is below 600 even with adjacent container", () => {
+      const source = makeSource([{ structureType: "container" }]);
+      assert.isFalse(canUseStationaryStrategy(buildRoom(500, [source])));
+    });
 
-    assert.equal(spawn.calls.length, 1);
-    const firstCall = spawn.calls[0];
-    if (firstCall == null) {
-      assert.fail("Expected first spawn call to exist");
-    }
-    assert.deepEqual(firstCall.body, ["work", "carry", "move"]);
-    assert.equal(firstCall.name, "Harvester_12345");
-    const creepMemory = firstCall.memory;
-    if (creepMemory == null) {
-      assert.fail("Expected creep memory to exist");
-    }
-    assert.equal(creepMemory.role, "harvester");
-    assert.equal(creepMemory.room, "W1N1");
+    it("returns false when energy capacity is at least 600 but no source has adjacent container", () => {
+      const source = makeSource([]);
+      assert.isFalse(canUseStationaryStrategy(buildRoom(600, [source])));
+    });
+
+    it("returns true when energy capacity is at least 600 and any source has an adjacent built container", () => {
+      const sourceA = makeSource([]);
+      const sourceB = makeSource([{ structureType: "container" }]);
+      assert.isTrue(canUseStationaryStrategy(buildRoom(600, [sourceA, sourceB])));
+    });
+
+    it("returns false when only an adjacent non-container structure exists", () => {
+      const source = makeSource([{ structureType: "extension" }]);
+      assert.isFalse(canUseStationaryStrategy(buildRoom(600, [source])));
+    });
+
+    it("returns false when no sources exist in the room", () => {
+      assert.isFalse(canUseStationaryStrategy(buildRoom(600, [])));
+    });
   });
 
-  it("spawns an upgrader when harvester threshold is met and upgrader threshold is not met", () => {
-    const spawn = createMockSpawn("W1N1", null, 0);
-    (global as any).Game.spawns = { Spawn1: spawn };
-    (global as any).Game.time = 12345;
-    (global as any).Game.creeps = {
-      Harvester1: { memory: { role: "harvester" } },
-      Harvester2: { memory: { role: "harvester" } }
-    };
+  describe("runSpawner — inactive queue", () => {
+    it("spawns a harvester when below threshold", () => {
+      const spawn = createMockSpawn();
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.time = 12345;
 
-    runSpawner();
+      runSpawner();
 
-    assert.equal(spawn.calls.length, 1);
-    const firstCall = spawn.calls[0];
-    if (firstCall == null) {
-      assert.fail("Expected first spawn call to exist");
-    }
-    assert.deepEqual(firstCall.body, ["work", "carry", "move"]);
-    assert.match(firstCall.name, /^Upgrader_12345/);
-    const creepMemory = firstCall.memory;
-    if (creepMemory == null) {
-      assert.fail("Expected creep memory to exist");
-    }
-    assert.equal(creepMemory.role, "upgrader");
-    assert.equal(creepMemory.room, "W1N1");
+      assert.equal(spawn.calls.length, 1);
+      assert.deepEqual(spawn.calls[0].body, ["work", "carry", "move"]);
+      assert.equal(spawn.calls[0].name, "Harvester_12345");
+      assert.equal(spawn.calls[0].memory?.role, "harvester");
+      assert.equal(spawn.calls[0].memory?.room, "W1N1");
+    });
+
+    it("spawns an upgrader when harvester threshold is met and upgrader threshold is not met", () => {
+      const spawn = createMockSpawn();
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.time = 12345;
+      (global as any).Game.creeps = {
+        Harvester1: { memory: { role: "harvester", room: "W1N1" } },
+        Harvester2: { memory: { role: "harvester", room: "W1N1" } },
+        Builder1: { memory: { role: "builder", room: "W1N1" } }
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.match(spawn.calls[0].name, /^Upgrader_12345/);
+      assert.equal(spawn.calls[0].memory?.role, "upgrader");
+      assert.equal(spawn.calls[0].memory?.room, "W1N1");
+    });
+
+    it("does not spawn when all inactive-queue thresholds are met", () => {
+      const spawn = createMockSpawn();
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.creeps = {
+        Harvester1: { memory: { role: "harvester", room: "W1N1" } },
+        Harvester2: { memory: { role: "harvester", room: "W1N1" } },
+        Builder1: { memory: { role: "builder", room: "W1N1" } },
+        Upgrader1: { memory: { role: "upgrader", room: "W1N1" } }
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 0);
+    });
+
+    it("prioritizes spawning harvesters when all roles are below threshold", () => {
+      const spawn = createMockSpawn();
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.time = 777;
+      (global as any).Game.creeps = {};
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].name, "Harvester_777");
+      assert.equal(spawn.calls[0].memory?.role, "harvester");
+    });
   });
 
-  it("does not spawn when both harvester and upgrader thresholds are met", () => {
-    const spawn = createMockSpawn("W1N1", null, 0);
-    (global as any).Game.spawns = { Spawn1: spawn };
-    (global as any).Game.creeps = {
-      Harvester1: { memory: { role: "harvester" } },
-      Harvester2: { memory: { role: "harvester" } },
-      Upgrader1: { memory: { role: "upgrader" } }
-    };
+  describe("runSpawner — active queue", () => {
+    const sourceWithContainer = (): any => makeSource([{ structureType: "container" }]);
 
-    runSpawner();
+    it("spawns a stationaryHarvester first when active strategy is available", () => {
+      const spawn = createMockSpawn({ energyCapacityAvailable: 600, sources: [sourceWithContainer()] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.time = 555;
+      (global as any).Game.creeps = {};
 
-    assert.equal(spawn.calls.length, 0);
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.deepEqual(spawn.calls[0].body, ["work", "work", "work", "work", "work", "carry", "move"]);
+      assert.equal(spawn.calls[0].memory?.role, "stationaryHarvester");
+      assert.match(spawn.calls[0].name, /^StatHarvester_555/);
+    });
+
+    it("spawns hauler after stationaryHarvester threshold is met", () => {
+      const spawn = createMockSpawn({ energyCapacityAvailable: 600, sources: [sourceWithContainer()] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.time = 600;
+      (global as any).Game.creeps = {
+        SH1: { memory: { role: "stationaryHarvester", room: "W1N1" } }
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.deepEqual(spawn.calls[0].body, ["carry", "carry", "carry", "carry", "move", "move", "move", "move"]);
+      assert.equal(spawn.calls[0].memory?.role, "hauler");
+    });
+
+    it("uses harvester threshold of 1 in active queue", () => {
+      const spawn = createMockSpawn({ energyCapacityAvailable: 600, sources: [sourceWithContainer()] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.creeps = {
+        SH1: { memory: { role: "stationaryHarvester", room: "W1N1" } },
+        H1: { memory: { role: "hauler", room: "W1N1" } },
+        H2: { memory: { role: "hauler", room: "W1N1" } },
+        Harv1: { memory: { role: "harvester", room: "W1N1" } }
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "builder");
+    });
+
+    it("falls through to next role when top-priority role spawn fails", () => {
+      // First call (stationaryHarvester) returns ERR_NOT_ENOUGH_ENERGY (-6),
+      // remaining calls succeed.
+      const sources = [sourceWithContainer()];
+      let callIndex = 0;
+      const calls: SpawnCall[] = [];
+      const spawn: MockSpawn = {
+        room: {
+          name: "W1N1",
+          energyCapacityAvailable: 600,
+          find: (constant: number): any[] =>
+            constant === (global as any).FIND_SOURCES ? sources : []
+        },
+        spawning: null,
+        calls,
+        spawnCreep: (body: BodyPartConstant[], name: string, opts: SpawnOptions): number => {
+          calls.push({ body, name, memory: opts.memory });
+          const result = callIndex === 0 ? -6 : 0;
+          callIndex++;
+          return result;
+        }
+      };
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.time = 800;
+      (global as any).Game.creeps = {};
+
+      runSpawner();
+
+      // First attempt: stationaryHarvester fails; falls through to hauler (succeeds).
+      assert.equal(spawn.calls.length, 2);
+      assert.equal(spawn.calls[0].memory?.role, "stationaryHarvester");
+      assert.equal(spawn.calls[1].memory?.role, "hauler");
+      assert.notEqual(spawn.calls[0].name, spawn.calls[1].name);
+    });
   });
 
-  it("prioritizes spawning harvesters when both roles are below threshold", () => {
-    const spawn = createMockSpawn("W1N1", null, 0);
-    (global as any).Game.spawns = { Spawn1: spawn };
-    (global as any).Game.time = 777;
-    (global as any).Game.creeps = {};
+  describe("runSpawner — per-room counting", () => {
+    it("attributes creeps to their memory.room, not current position", () => {
+      const spawn = createMockSpawn({ roomName: "W1N1" });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.creeps = {
+        // Physically elsewhere but home is W1N1 — should count.
+        Harv1: { memory: { role: "harvester", room: "W1N1" } },
+        Harv2: { memory: { role: "harvester", room: "W1N1" } },
+        Builder1: { memory: { role: "builder", room: "W1N1" } },
+        Upgrader1: { memory: { role: "upgrader", room: "W1N1" } }
+      };
 
-    runSpawner();
+      runSpawner();
 
-    assert.equal(spawn.calls.length, 1);
-    const firstCall = spawn.calls[0];
-    if (firstCall == null) {
-      assert.fail("Expected first spawn call to exist");
-    }
-    assert.equal(firstCall.name, "Harvester_777");
-    const creepMemory = firstCall.memory;
-    if (creepMemory == null) {
-      assert.fail("Expected creep memory to exist");
-    }
-    assert.equal(creepMemory.role, "harvester");
+      assert.equal(spawn.calls.length, 0);
+    });
+
+    it("skips creeps with undefined memory.room", () => {
+      const spawn = createMockSpawn();
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.time = 999;
+      (global as any).Game.creeps = {
+        Orphan1: { memory: { role: "harvester" } },
+        Orphan2: { memory: { role: "harvester" } }
+      };
+
+      runSpawner();
+
+      // Orphans not counted; harvester threshold still unmet -> spawns harvester.
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "harvester");
+    });
+
+    it("does not attribute creeps from another room", () => {
+      const spawn = createMockSpawn({ roomName: "W1N1" });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.creeps = {
+        OtherRoomHarv1: { memory: { role: "harvester", room: "W2N2" } },
+        OtherRoomHarv2: { memory: { role: "harvester", room: "W2N2" } }
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "harvester");
+      assert.equal(spawn.calls[0].memory?.room, "W1N1");
+    });
   });
 
-  it("skips busy spawns", () => {
-    const busySpawn = createMockSpawn("W1N1", {}, 0);
-    const idleSpawn = createMockSpawn("W1N1", null, 0);
-    (global as any).Game.spawns = {
-      Busy: busySpawn,
-      Idle: idleSpawn
-    };
-    (global as any).Game.time = 999;
+  describe("runSpawner — multi-spawn behavior", () => {
+    it("skips busy spawns", () => {
+      const busySpawn = createMockSpawn({ spawning: {} });
+      const idleSpawn = createMockSpawn();
+      (global as any).Game.spawns = { Busy: busySpawn, Idle: idleSpawn };
+      (global as any).Game.time = 999;
 
-    runSpawner();
+      runSpawner();
 
-    assert.equal(busySpawn.calls.length, 0);
-    assert.equal(idleSpawn.calls.length, 1);
-    const firstIdleCall = idleSpawn.calls[0];
-    if (firstIdleCall == null) {
-      assert.fail("Expected idle spawn call to exist");
-    }
-    assert.equal(firstIdleCall.name, "Harvester_999");
-  });
+      assert.equal(busySpawn.calls.length, 0);
+      assert.equal(idleSpawn.calls.length, 1);
+      assert.equal(idleSpawn.calls[0].name, "Harvester_999");
+    });
 
-  it("continues to later spawns after a failed spawn attempt and uses unique names on retries", () => {
-    const firstSpawn = createMockSpawn("W1N1", null, -3);
-    const secondSpawn = createMockSpawn("W1N1", null, 0);
-    (global as any).Game.spawns = { Spawn1: firstSpawn, Spawn2: secondSpawn };
-    (global as any).Game.time = 4242;
+    it("continues to later spawns after a failed spawn attempt and uses unique names on retries", () => {
+      const firstSpawn = createMockSpawn({ returnCode: -3 });
+      const secondSpawn = createMockSpawn({ returnCode: 0 });
+      (global as any).Game.spawns = { Spawn1: firstSpawn, Spawn2: secondSpawn };
+      (global as any).Game.time = 4242;
 
-    assert.doesNotThrow(() => runSpawner());
-    assert.equal(firstSpawn.calls.length, 1);
-    assert.equal(secondSpawn.calls.length, 1);
+      assert.doesNotThrow(() => runSpawner());
+      assert.equal(firstSpawn.calls.length, 1);
+      assert.equal(secondSpawn.calls.length, 1);
+      assert.notEqual(firstSpawn.calls[0].name, secondSpawn.calls[0].name);
+    });
 
-    const firstCall = firstSpawn.calls[0];
-    const secondCall = secondSpawn.calls[0];
-    if (firstCall == null || secondCall == null) {
-      assert.fail("Expected spawn calls to exist");
-    }
-    assert.notEqual(firstCall.name, secondCall.name);
-  });
+    it("stops after the first successful spawn attempt", () => {
+      const firstSpawn = createMockSpawn({ returnCode: 0 });
+      const secondSpawn = createMockSpawn({ returnCode: 0 });
+      (global as any).Game.spawns = { Spawn1: firstSpawn, Spawn2: secondSpawn };
 
-  it("stops after the first successful spawn attempt", () => {
-    const firstSpawn = createMockSpawn("W1N1", null, 0);
-    const secondSpawn = createMockSpawn("W1N1", null, 0);
-    (global as any).Game.spawns = { Spawn1: firstSpawn, Spawn2: secondSpawn };
+      assert.doesNotThrow(() => runSpawner());
+      assert.equal(firstSpawn.calls.length, 1);
+      assert.equal(secondSpawn.calls.length, 0);
+    });
 
-    assert.doesNotThrow(() => runSpawner());
-    assert.equal(firstSpawn.calls.length, 1);
-    assert.equal(secondSpawn.calls.length, 0);
-  });
+    it("does nothing when there are no spawns", () => {
+      (global as any).Game.spawns = {};
 
-  it("does nothing when there are no spawns", () => {
-    (global as any).Game.spawns = {};
-
-    assert.doesNotThrow(() => runSpawner());
+      assert.doesNotThrow(() => runSpawner());
+    });
   });
 });

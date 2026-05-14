@@ -6,20 +6,28 @@ import { Game, Memory } from "./mock";
 // Minimal creep factory — only the fields evaluateTask touches
 // ---------------------------------------------------------------------------
 const makeCreep = (opts: {
+  role?: string;
   energyCarried?: number;
+  energyFree?: number;
   spawnEnergy?: number;
   spawnCapacity?: number;
   spawnFree?: number;
   storageFree?: number;
   activeSources?: number;
+  allSources?: object[];
+  constructionSites?: object[];
 }): any => {
   const {
+    role,
     energyCarried = 0,
+    energyFree = 300,
     spawnEnergy = 0,
     spawnCapacity = 300,
     spawnFree = 300,
     storageFree = 0,
-    activeSources = 0
+    activeSources = 0,
+    allSources = [],
+    constructionSites = []
   } = opts;
 
   const spawn =
@@ -41,11 +49,17 @@ const makeCreep = (opts: {
   const sources = Array.from({ length: activeSources }, (_, i) => ({ id: `source${i}` }));
 
   return {
-    store: { getUsedCapacity: (): number => energyCarried },
+    memory: role != null ? { role } : {},
+    store: { getUsedCapacity: (): number => energyCarried, getFreeCapacity: (): number => energyFree },
     pos: { findClosestByRange: (): object | null => spawn },
     room: {
       storage,
-      find: (): object[] => sources
+      find: (findType: number): object[] => {
+        if (findType === (global as any).FIND_SOURCES_ACTIVE) return sources;
+        if (findType === (global as any).FIND_SOURCES) return allSources;
+        if (findType === (global as any).FIND_CONSTRUCTION_SITES) return constructionSites;
+        return [];
+      }
     }
   };
 };
@@ -58,7 +72,11 @@ describe("evaluateTask", () => {
     global.Memory = _.clone(Memory);
     (global as any).FIND_MY_SPAWNS = 2;
     (global as any).FIND_SOURCES_ACTIVE = 3;
+    (global as any).FIND_SOURCES = 4;
+    (global as any).FIND_CONSTRUCTION_SITES = 5;
+    (global as any).FIND_STRUCTURES = 6;
     (global as any).RESOURCE_ENERGY = "energy";
+    (global as any).STRUCTURE_CONTAINER = "container";
   });
 
   // -------------------------------------------------------------------------
@@ -77,13 +95,47 @@ describe("evaluateTask", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Priority 2 — creep has energy
+  // Priority 2 — creep is full
   // -------------------------------------------------------------------------
 
-  it("returns 'deposit' when spawn has room and creep has energy (non-critical)", () => {
-    // spawn at 50%, creep has energy
-    const creep = makeCreep({ energyCarried: 10, spawnEnergy: 150, spawnCapacity: 300, spawnFree: 150 });
+  it("returns 'deposit' when spawn has room and creep is full (non-critical)", () => {
+    // spawn at 50%, creep is full
+    const creep = makeCreep({ energyCarried: 100, energyFree: 0, spawnEnergy: 150, spawnCapacity: 300, spawnFree: 150 });
     assert.equal(evaluateTask(creep), "deposit");
+  });
+
+  it("returns 'deposit' when spawn is full but storage has room and creep is full", () => {
+    const creep = makeCreep({
+      energyCarried: 100,
+      energyFree: 0,
+      spawnEnergy: 300,
+      spawnCapacity: 300,
+      spawnFree: 0,
+      storageFree: 500
+    });
+    assert.equal(evaluateTask(creep), "deposit");
+  });
+
+  it("returns 'upgrade' when spawn and storage are both full and creep is full", () => {
+    const creep = makeCreep({
+      energyCarried: 100,
+      energyFree: 0,
+      spawnEnergy: 300,
+      spawnCapacity: 300,
+      spawnFree: 0,
+      storageFree: 0
+    });
+    assert.equal(evaluateTask(creep), "upgrade");
+  });
+
+  // -------------------------------------------------------------------------
+  // Priority 3 — creep is not full, source available → keep harvesting
+  // -------------------------------------------------------------------------
+
+  it("returns 'harvest' when creep has partial energy and a source is active", () => {
+    // creep is half-full; should continue harvesting rather than switching to deposit
+    const creep = makeCreep({ energyCarried: 50, energyFree: 50, spawnEnergy: 150, spawnCapacity: 300, spawnFree: 150, activeSources: 1 });
+    assert.equal(evaluateTask(creep), "harvest");
   });
 
   it("returns 'deposit' when spawn is full but storage has room and creep has energy", () => {
@@ -109,7 +161,21 @@ describe("evaluateTask", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Priority 3 — creep is empty
+  // Priority 4 — creep has partial energy but no source → deliver what we have
+  // -------------------------------------------------------------------------
+
+  it("returns 'deposit' when creep has partial energy, no active source, and spawn has room", () => {
+    const creep = makeCreep({ energyCarried: 50, energyFree: 50, spawnEnergy: 150, spawnCapacity: 300, spawnFree: 150, activeSources: 0 });
+    assert.equal(evaluateTask(creep), "deposit");
+  });
+
+  it("returns 'upgrade' when creep has partial energy, no active source, and no deposit target", () => {
+    const creep = makeCreep({ energyCarried: 50, energyFree: 50, spawnEnergy: 300, spawnCapacity: 300, spawnFree: 0, storageFree: 0, activeSources: 0 });
+    assert.equal(evaluateTask(creep), "upgrade");
+  });
+
+  // -------------------------------------------------------------------------
+  // Fallback / Priority 5 — creep is empty
   // -------------------------------------------------------------------------
 
   it("returns 'harvest' when creep is empty and a source is active", () => {
@@ -129,7 +195,7 @@ describe("evaluateTask", () => {
   it("returns 'harvest' when no spawn exists and creep is empty but source is active", () => {
     // no spawn — findClosestByRange returns null
     const creep = {
-      store: { getUsedCapacity: (): number => 0 },
+      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 300 },
       pos: { findClosestByRange: (): null => null },
       room: {
         storage: null,
@@ -141,10 +207,136 @@ describe("evaluateTask", () => {
 
   it("returns 'upgrade' when no spawn and no active source", () => {
     const creep = {
-      store: { getUsedCapacity: (): number => 0 },
+      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 300 },
       pos: { findClosestByRange: (): null => null },
       room: { storage: null, find: (): object[] => [] }
     };
     assert.equal(evaluateTask(creep as any), "upgrade");
+  });
+
+  // -------------------------------------------------------------------------
+  // Role routing
+  // -------------------------------------------------------------------------
+
+  it("returns 'harvestAndDeposit' immediately for stationaryHarvester", () => {
+    const creep = makeCreep({
+      role: "stationaryHarvester",
+      energyCarried: 0,
+      energyFree: 300,
+      spawnEnergy: 300,
+      spawnCapacity: 300,
+      spawnFree: 0,
+      activeSources: 0
+    });
+
+    assert.equal(evaluateTask(creep), "harvestAndDeposit");
+  });
+
+  it("returns 'deposit' for hauler when creep has energy and can deposit", () => {
+    const creep = makeCreep({
+      role: "hauler",
+      energyCarried: 25,
+      energyFree: 75,
+      spawnEnergy: 150,
+      spawnCapacity: 300,
+      spawnFree: 150,
+      activeSources: 1
+    });
+
+    assert.equal(evaluateTask(creep), "deposit");
+  });
+
+  it("returns 'forage' for hauler when deposit condition is not met", () => {
+    const creep = makeCreep({
+      role: "hauler",
+      energyCarried: 0,
+      spawnEnergy: 150,
+      spawnCapacity: 300,
+      spawnFree: 150,
+      activeSources: 1
+    });
+
+    assert.equal(evaluateTask(creep), "forage");
+  });
+
+  it("returns 'build' for builder when a construction site exists", () => {
+    const creep = makeCreep({
+      role: "builder",
+      activeSources: 1,
+      constructionSites: [{ id: "site1" }]
+    });
+
+    assert.equal(evaluateTask(creep), "build");
+  });
+
+  it("returns 'build' for builder when any source lacks adjacent container infrastructure", () => {
+    const sourceWithoutContainer = {
+      pos: {
+        findInRange: (findType: number): object[] => {
+          if (findType === (global as any).FIND_STRUCTURES) return [];
+          if (findType === (global as any).FIND_CONSTRUCTION_SITES) return [];
+          return [];
+        }
+      }
+    };
+
+    const creep = makeCreep({
+      role: "builder",
+      activeSources: 1,
+      allSources: [sourceWithoutContainer],
+      constructionSites: []
+    });
+
+    assert.equal(evaluateTask(creep), "build");
+  });
+
+  it("falls through to generic logic for idle builder when build conditions are not met", () => {
+    const sourceWithContainerSite = {
+      pos: {
+        findInRange: (findType: number): object[] => {
+          if (findType === (global as any).FIND_STRUCTURES) return [];
+          if (findType === (global as any).FIND_CONSTRUCTION_SITES) {
+            return [{ structureType: (global as any).STRUCTURE_CONTAINER }];
+          }
+          return [];
+        }
+      }
+    };
+
+    const creep = makeCreep({
+      role: "builder",
+      energyCarried: 0,
+      energyFree: 100,
+      activeSources: 1,
+      allSources: [sourceWithContainerSite],
+      constructionSites: []
+    });
+
+    assert.equal(evaluateTask(creep), "harvest");
+  });
+
+  it("keeps generic evaluator behavior for harvester and upgrader roles", () => {
+    const harvester = makeCreep({
+      role: "harvester",
+      energyCarried: 100,
+      energyFree: 0,
+      spawnEnergy: 300,
+      spawnCapacity: 300,
+      spawnFree: 0,
+      storageFree: 0
+    });
+
+    const upgrader = makeCreep({
+      role: "upgrader",
+      energyCarried: 0,
+      energyFree: 100,
+      spawnEnergy: 300,
+      spawnCapacity: 300,
+      spawnFree: 0,
+      activeSources: 1
+    });
+
+    assert.equal(evaluateTask(harvester), "upgrade");
+    assert.equal(evaluateTask(upgrader), "harvest");
   });
 });
