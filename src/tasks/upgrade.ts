@@ -18,7 +18,18 @@ export const runUpgradeTask = (creep: Creep): boolean => {
       return false;
     }
 
-    // Fall back to closest active source
+    // Pinned source (controller-supply role)
+    const pinnedId = creep.memory.sourceId;
+    if (pinnedId != null) {
+      const pinned = Game.getObjectById<Source>(pinnedId);
+      if (pinned != null) {
+        const pinnedHarvestResult = creep.harvest(pinned);
+        if (pinnedHarvestResult === ERR_NOT_IN_RANGE) creep.moveTo(pinned);
+        return false;
+      }
+    }
+
+    // Fall back to closest active source (1-source rooms / no pin)
     const source = creep.pos.findClosestByRange(FIND_SOURCES_ACTIVE);
     if (source == null) return true; // nothing to gather — task complete, re-evaluate
 

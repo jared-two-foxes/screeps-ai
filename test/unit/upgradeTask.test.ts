@@ -136,6 +136,7 @@ describe("runUpgradeTask", () => {
     let harvestTarget: object | null = null;
 
     const creep = {
+      memory: {},
       store: { getUsedCapacity: (): number => 0 },
       room: { controller: { id: "controller1" }, storage: undefined },
       pos: { findClosestByRange: (): object => source },
@@ -160,6 +161,7 @@ describe("runUpgradeTask", () => {
     let harvestTarget: object | null = null;
 
     const creep = {
+      memory: {},
       store: { getUsedCapacity: (): number => 0 },
       room: {
         controller: { id: "controller1" },
@@ -189,6 +191,7 @@ describe("runUpgradeTask", () => {
     let moveTarget: object | null = null;
 
     const creep = {
+      memory: {},
       store: { getUsedCapacity: (): number => 0 },
       room: { controller: { id: "controller1" }, storage: undefined },
       pos: { findClosestByRange: (): object => source },
@@ -210,6 +213,7 @@ describe("runUpgradeTask", () => {
     let upgradeCalls = 0;
 
     const creep = {
+      memory: {},
       store: { getUsedCapacity: (): number => 0 },
       room: { controller: { id: "controller1" }, storage: undefined },
       pos: { findClosestByRange: (): null => null },
@@ -224,5 +228,30 @@ describe("runUpgradeTask", () => {
 
     assert.isTrue(runUpgradeTask(creep as any));
     assert.equal(upgradeCalls, 0);
+  });
+
+  it("harvests from pinned sourceId when set, ignoring findClosestByRange", () => {
+    const pinnedSource = { id: "pinned-src" };
+    let harvestTarget: object | null = null;
+    let findClosestCalls = 0;
+
+    (global as any).Game.getObjectById = (id: string): object | null =>
+      id === "pinned-src" ? pinnedSource : null;
+
+    const creep = {
+      memory: { role: "upgrader", room: "W1N1", sourceId: "pinned-src" },
+      store: { getUsedCapacity: (): number => 0 },
+      room: { controller: { id: "c1" }, storage: undefined },
+      pos: { findClosestByRange: (): null => { findClosestCalls++; return null; } },
+      withdraw: (): number => 0,
+      harvest: (t: object): number => { harvestTarget = t; return 0; },
+      upgradeController: (): number => 0,
+      moveTo: (): number => 0
+    };
+
+    runUpgradeTask(creep as any);
+
+    assert.strictEqual(harvestTarget, pinnedSource);
+    assert.equal(findClosestCalls, 0);
   });
 });

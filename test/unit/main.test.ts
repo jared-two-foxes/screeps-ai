@@ -68,6 +68,15 @@ describe("main", () => {
     (global as any).OK = 0;
     (global as any).FIND_STRUCTURES = 2;
     (global as any).STRUCTURE_CONTAINER = "container";
+    (global as any).WORK = "work";
+    (global as any).CARRY = "carry";
+    (global as any).MOVE = "move";
+    (global as any).BODYPART_COST = { work: 100, carry: 50, move: 50 };
+    (global as any).CREEP_LIFE_TIME = 1500;
+    (global as any).ERR_NOT_ENOUGH_ENERGY = -6;
+    (global as any).PathFinder = {
+      search: (): { path: any[]; incomplete: boolean } => ({ path: [], incomplete: false })
+    };
 
     consoleLogs = [];
     originalConsoleLog = console.log;

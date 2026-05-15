@@ -2,21 +2,41 @@
 // Role definitions
 // ---------------------------------------------------------------------------
 
+const MINE_TIME = 25;
+const DOUBLE_BODY_THRESHOLD = 400;
+const CREEP_LIFE_TIME = 1500;
+
 const bodies = {
   stationaryHarvester: ["work", "work", "work", "work", "work", "carry", "move"] as BodyPartConstant[],
   hauler: ["carry", "carry", "carry", "carry", "move", "move", "move", "move"] as BodyPartConstant[],
-  worker: ["work", "carry", "move"] as BodyPartConstant[]
+  worker: ["work", "carry", "move"] as BodyPartConstant[],
+  workerDouble: ["work", "carry", "move", "work", "carry", "move"] as BodyPartConstant[]
 };
 
 // Per-source WORK saturation cap.
 // A source regenerates 3000 energy every 300 ticks; 5 WORK harvests 10 e/tick = 3000 e per cycle.
 const SOURCE_WORK_SATURATION = 5;
 
+const pathDistanceCache = new Map<string, number>();
+
+export const clearDistanceCache = (): void => {
+  pathDistanceCache.clear();
+};
+
 interface RoomContext {
   room: Room;
   sources: Source[];
+  workerBody: BodyPartConstant[];
   /** WORK parts already assigned per source (by source.id). */
   assignedWorkBySource: Record<string, number>;
+  /** Source IDs dedicated to spawn-supply. */
+  spawnSourceIds: string[];
+  /** Source IDs dedicated to controller-supply. */
+  controllerSourceIds: string[];
+  /** Required WORK cap per source.id. */
+  neededWorkCapPerSource: Record<string, number>;
+  /** Upgrader assignment per source.id. */
+  upgradersPerSource: Record<string, number>;
   /** Sources with an adjacent built container (eligible for stationary harvesters). */
   containerSourceIds: Set<string>;
   /** Stationary harvester assignment per source.id (count, capped at 1). */
@@ -25,7 +45,7 @@ interface RoomContext {
 
 interface SpawnQueueRole {
   role: CreepMemory["role"];
-  body: BodyPartConstant[];
+  body: (ctx: RoomContext) => BodyPartConstant[];
   namePrefix: string;
   /** Number of creeps this role wants right now for the given room. */
   targetCount: (ctx: RoomContext, counts: Record<string, number>) => number;
@@ -48,6 +68,96 @@ const countWorkPartsInBody = (body: BodyPartConstant[]): number => {
   return work;
 };
 
+export const calcBodyCost = (body: BodyPartConstant[]): number => {
+  let total = 0;
+  for (const part of body) {
+    total += BODYPART_COST[part];
+  }
+  return total;
+};
+
+export const selectWorkerBody = (room: Room): BodyPartConstant[] =>
+  room.energyCapacityAvailable >= DOUBLE_BODY_THRESHOLD ? bodies.workerDouble : bodies.worker;
+
+const positionKey = (pos: RoomPosition): string => `${pos.roomName}:${pos.x},${pos.y}`;
+
+const cacheKeyForDistance = (from: RoomPosition, to: RoomPosition): string =>
+  `${positionKey(from)}->${positionKey(to)}`;
+
+const chebyshevDistance = (from: RoomPosition, to: RoomPosition): number =>
+  Math.max(Math.abs(from.x - to.x), Math.abs(from.y - to.y));
+
+const getPathDistance = (from: RoomPosition, to: RoomPosition): number => {
+  const key = cacheKeyForDistance(from, to);
+  const cached = pathDistanceCache.get(key);
+  if (cached != null) return cached;
+
+  const result = PathFinder.search(from, { pos: to, range: 1 }, { ignoreCreeps: true } as unknown as PathFinderOpts);
+  const distance = result.incomplete ? chebyshevDistance(from, to) : result.path.length;
+  pathDistanceCache.set(key, distance);
+  return distance;
+};
+
+interface SourceClassification {
+  spawnSourceIds: string[];
+  controllerSourceIds: string[];
+}
+
+export const classifySources = (
+  sources: Source[],
+  spawnPos: RoomPosition | undefined,
+  controllerPos: RoomPosition | undefined
+): SourceClassification => {
+  if (sources.length === 0) {
+    return { spawnSourceIds: [], controllerSourceIds: [] };
+  }
+
+  // No spawn anchor means default everything to spawn-supply.
+  if (spawnPos == null) {
+    return { spawnSourceIds: sources.map(source => source.id), controllerSourceIds: [] };
+  }
+
+  // Without a controller anchor, keep all sources on spawn-supply.
+  if (controllerPos == null) {
+    return { spawnSourceIds: sources.map(source => source.id), controllerSourceIds: [] };
+  }
+
+  if (sources.length === 1) {
+    return { spawnSourceIds: [sources[0].id], controllerSourceIds: [] };
+  }
+
+  if (sources.length === 2) {
+    const sorted = [...sources].sort((a, b) => {
+      const scoreA = getPathDistance(spawnPos, a.pos) - getPathDistance(controllerPos, a.pos);
+      const scoreB = getPathDistance(spawnPos, b.pos) - getPathDistance(controllerPos, b.pos);
+      if (scoreA !== scoreB) return scoreA - scoreB;
+      return a.id.localeCompare(b.id);
+    });
+    return {
+      spawnSourceIds: [sorted[0].id],
+      controllerSourceIds: [sorted[1].id]
+    };
+  }
+
+  const controllerSource = [...sources].sort((a, b) => {
+    const aDistance = getPathDistance(controllerPos, a.pos);
+    const bDistance = getPathDistance(controllerPos, b.pos);
+    if (aDistance !== bDistance) return aDistance - bDistance;
+    return a.id.localeCompare(b.id);
+  })[0];
+
+  return {
+    spawnSourceIds: sources.filter(source => source.id !== controllerSource.id).map(source => source.id),
+    controllerSourceIds: [controllerSource.id]
+  };
+};
+
+export const calcNeededHarvestersForSource = (source: Source, spawnPos: RoomPosition, workPerCreep: number): number => {
+  const d = getPathDistance(spawnPos, source.pos);
+  const cycleTime = MINE_TIME + 3 * d;
+  return Math.ceil((5 * cycleTime) / (MINE_TIME * Math.max(workPerCreep, 1)));
+};
+
 const countWorkParts = (creep: Creep): number => {
   let work = 0;
   for (const part of creep.body) {
@@ -68,6 +178,19 @@ const buildAssignedWorkBySource = (roomName: string): Record<string, number> => 
     work[sourceId] = (work[sourceId] ?? 0) + countWorkParts(creep);
   }
   return work;
+};
+
+const buildUpgradersPerSource = (roomName: string): Record<string, number> => {
+  const counts: Record<string, number> = {};
+  for (const creepName in Game.creeps) {
+    const creep = Game.creeps[creepName];
+    if (creep.memory.room !== roomName) continue;
+    if (creep.memory.role !== "upgrader") continue;
+    const sourceId = creep.memory.sourceId;
+    if (sourceId == null) continue;
+    counts[sourceId] = (counts[sourceId] ?? 0) + 1;
+  }
+  return counts;
 };
 
 const buildStationaryBySource = (roomName: string): Record<string, number> => {
@@ -96,10 +219,30 @@ const sourcesWithBuiltContainer = (sources: Source[]): Set<string> => {
 
 const buildRoomContext = (room: Room): RoomContext => {
   const sources = room.find(FIND_SOURCES);
+  const workerBody = selectWorkerBody(room);
+  const workPerCreep = countWorkPartsInBody(workerBody);
+  const spawnPos = room.find(FIND_MY_SPAWNS)[0]?.pos;
+  const classification = classifySources(sources, spawnPos, room.controller?.pos);
+  const neededWorkCapPerSource: Record<string, number> = {};
+
+  for (const source of sources) {
+    if (classification.spawnSourceIds.includes(source.id) && spawnPos != null) {
+      const neededHarvesters = calcNeededHarvestersForSource(source, spawnPos, workPerCreep);
+      neededWorkCapPerSource[source.id] = neededHarvesters * Math.max(workPerCreep, 1);
+    } else {
+      neededWorkCapPerSource[source.id] = SOURCE_WORK_SATURATION;
+    }
+  }
+
   return {
     room,
     sources,
+    workerBody,
     assignedWorkBySource: buildAssignedWorkBySource(room.name),
+    spawnSourceIds: classification.spawnSourceIds,
+    controllerSourceIds: classification.controllerSourceIds,
+    neededWorkCapPerSource,
+    upgradersPerSource: buildUpgradersPerSource(room.name),
     containerSourceIds: sourcesWithBuiltContainer(sources),
     stationaryBySource: buildStationaryBySource(room.name)
   };
@@ -109,19 +252,62 @@ const buildRoomContext = (room: Room): RoomContext => {
 // Source selection
 // ---------------------------------------------------------------------------
 
-/** Pick the source with the fewest assigned WORK parts that is below saturation. */
-const pickLeastSaturatedSource = (ctx: RoomContext, eligible?: Source[]): string | null => {
+/** Pick the source with the lowest saturation that is below its cap. */
+const pickLeastSaturatedSource = (
+  ctx: RoomContext,
+  eligible?: Source[],
+  caps?: Record<string, number>
+): string | null => {
   const pool = eligible ?? ctx.sources;
+  const effectiveCaps = caps ?? ctx.neededWorkCapPerSource;
   let bestId: string | null = null;
-  let bestWork = Infinity;
+  let bestSaturation = Infinity;
+  let bestAssigned = Infinity;
   for (const source of pool) {
+    const cap = effectiveCaps[source.id] ?? SOURCE_WORK_SATURATION;
     const assigned = ctx.assignedWorkBySource[source.id] ?? 0;
-    if (assigned >= SOURCE_WORK_SATURATION) continue;
-    if (assigned < bestWork) {
-      bestWork = assigned;
+    if (assigned >= cap) continue;
+    const saturation = assigned / Math.max(cap, 1);
+
+    if (saturation < bestSaturation) {
+      bestSaturation = saturation;
+      bestAssigned = assigned;
       bestId = source.id;
+      continue;
+    }
+
+    if (saturation === bestSaturation) {
+      if (assigned < bestAssigned) {
+        bestAssigned = assigned;
+        bestId = source.id;
+        continue;
+      }
+
+      if (assigned === bestAssigned && bestId != null && source.id.localeCompare(bestId) < 0) {
+        bestId = source.id;
+      }
     }
   }
+  return bestId;
+};
+
+const pickLeastSaturatedControllerSource = (ctx: RoomContext): string | null => {
+  if (ctx.controllerSourceIds.length === 0) return null;
+
+  let bestId: string | null = null;
+  let bestCount = Infinity;
+  for (const sourceId of ctx.controllerSourceIds) {
+    const count = ctx.upgradersPerSource[sourceId] ?? 0;
+    if (count < bestCount) {
+      bestCount = count;
+      bestId = sourceId;
+      continue;
+    }
+    if (count === bestCount && bestId != null && sourceId.localeCompare(bestId) < 0) {
+      bestId = sourceId;
+    }
+  }
+
   return bestId;
 };
 
@@ -140,8 +326,39 @@ const pickUncoveredStationarySource = (ctx: RoomContext): string | null => {
 // ---------------------------------------------------------------------------
 
 /** Sources not yet covered by a stationary harvester (used for self-harvest fallback). */
+const spawnSupplySources = (ctx: RoomContext): Source[] =>
+  ctx.sources.filter(source => ctx.spawnSourceIds.includes(source.id));
+
 const sourcesWithoutStationary = (ctx: RoomContext): Source[] =>
-  ctx.sources.filter(source => (ctx.stationaryBySource[source.id] ?? 0) === 0);
+  spawnSupplySources(ctx).filter(source => (ctx.stationaryBySource[source.id] ?? 0) === 0);
+
+export const areSpawnSourcesSaturated = (ctx: RoomContext, counts: Record<string, number>): boolean => {
+  void counts;
+  for (const sourceId of ctx.spawnSourceIds) {
+    const assigned = ctx.assignedWorkBySource[sourceId] ?? 0;
+    const required = ctx.neededWorkCapPerSource[sourceId] ?? SOURCE_WORK_SATURATION;
+    if (assigned < required) return false;
+  }
+  return true;
+};
+
+export const canSupportAnotherUpgrader = (ctx: RoomContext, counts: Record<string, number>): boolean => {
+  if (!areSpawnSourcesSaturated(ctx, counts)) return false;
+
+  const harvestRate = Object.values(ctx.assignedWorkBySource).reduce((sum, work) => sum + work, 0) * 2;
+
+  let fleetCost = 0;
+  for (const creepName in Game.creeps) {
+    const creep = Game.creeps[creepName];
+    if (creep.memory.room !== ctx.room.name) continue;
+    const body = creep.body.map(part => part.type);
+    fleetCost += calcBodyCost(body);
+  }
+
+  const maintenanceCostPerTick = fleetCost / CREEP_LIFE_TIME;
+  const nextUpgraderCostPerTick = calcBodyCost(ctx.workerBody) / CREEP_LIFE_TIME;
+  return harvestRate - maintenanceCostPerTick >= nextUpgraderCostPerTick;
+};
 
 // ---------------------------------------------------------------------------
 // Queues
@@ -150,62 +367,72 @@ const sourcesWithoutStationary = (ctx: RoomContext): Source[] =>
 const activeQueue: SpawnQueueRole[] = [
   {
     role: "stationaryHarvester",
-    body: bodies.stationaryHarvester,
+    body: () => bodies.stationaryHarvester,
     namePrefix: "StatHarvester",
     targetCount: ctx => ctx.containerSourceIds.size,
     pickSourceId: ctx => pickUncoveredStationarySource(ctx)
   },
   {
     role: "hauler",
-    body: bodies.hauler,
+    body: () => bodies.hauler,
     namePrefix: "Hauler",
     targetCount: ctx => ctx.containerSourceIds.size + 1
   },
   {
     role: "harvester",
-    body: bodies.worker,
+    body: ctx => ctx.workerBody,
     namePrefix: "Harvester",
     // Spawn one more harvester at a time while any uncovered source has WORK slots free.
     targetCount: (ctx, counts) => {
       const eligible = sourcesWithoutStationary(ctx);
-      return pickLeastSaturatedSource(ctx, eligible) != null ? (counts.harvester ?? 0) + 1 : 0;
+      return pickLeastSaturatedSource(ctx, eligible, ctx.neededWorkCapPerSource) != null
+        ? (counts.harvester ?? 0) + 1
+        : 0;
     },
-    pickSourceId: ctx => pickLeastSaturatedSource(ctx, sourcesWithoutStationary(ctx))
+    pickSourceId: ctx => pickLeastSaturatedSource(ctx, sourcesWithoutStationary(ctx), ctx.neededWorkCapPerSource)
   },
   {
     role: "builder",
-    body: bodies.worker,
+    body: ctx => ctx.workerBody,
     namePrefix: "Builder",
     targetCount: () => 1
   },
   {
     role: "upgrader",
-    body: bodies.worker,
+    body: ctx => ctx.workerBody,
     namePrefix: "Upgrader",
-    targetCount: () => 1
+    targetCount: () => 1,
+    pickSourceId: ctx => pickLeastSaturatedControllerSource(ctx)
   }
 ];
 
 const inactiveQueue: SpawnQueueRole[] = [
   {
     role: "harvester",
-    body: bodies.worker,
+    body: ctx => ctx.workerBody,
     namePrefix: "Harvester",
-    // Spawn one more harvester at a time while any source has WORK slots free.
-    targetCount: (ctx, counts) => (pickLeastSaturatedSource(ctx) != null ? (counts.harvester ?? 0) + 1 : 0),
-    pickSourceId: ctx => pickLeastSaturatedSource(ctx)
+    targetCount: ctx => {
+      const workPerCreep = Math.max(countWorkPartsInBody(ctx.workerBody), 1);
+      return ctx.spawnSourceIds.reduce((sum, sourceId) => {
+        const workCap = ctx.neededWorkCapPerSource[sourceId] ?? SOURCE_WORK_SATURATION;
+        return sum + Math.ceil(workCap / workPerCreep);
+      }, 0);
+    },
+    pickSourceId: ctx => pickLeastSaturatedSource(ctx, spawnSupplySources(ctx), ctx.neededWorkCapPerSource)
   },
   {
     role: "builder",
-    body: bodies.worker,
+    body: ctx => ctx.workerBody,
     namePrefix: "Builder",
     targetCount: () => 1
   },
   {
     role: "upgrader",
-    body: bodies.worker,
+    body: ctx => ctx.workerBody,
     namePrefix: "Upgrader",
-    targetCount: () => 1
+    targetCount: (ctx, counts) =>
+      canSupportAnotherUpgrader(ctx, counts) ? (counts.upgrader ?? 0) + 1 : Math.min(counts.upgrader ?? 0, 1),
+    pickSourceId: ctx => pickLeastSaturatedControllerSource(ctx)
   }
 ];
 
@@ -277,17 +504,22 @@ export const runSpawner = (): void => {
           }
         }
 
-        const result = spawn.spawnCreep(roleDef.body, creepName, { memory });
+        const body = roleDef.body(ctx);
+        const result = spawn.spawnCreep(body, creepName, { memory });
         if (result === OK) {
           counts[roleDef.role] = currentCount + 1;
           // Update per-source accounting so subsequent spawns this tick don't double-assign.
-          if (memory.sourceId != null) {
+          if (memory.sourceId != null && (roleDef.role === "harvester" || roleDef.role === "stationaryHarvester")) {
             const pickedId = memory.sourceId;
-            const work = countWorkPartsInBody(roleDef.body);
+            const work = countWorkPartsInBody(body);
             ctx.assignedWorkBySource[pickedId] = (ctx.assignedWorkBySource[pickedId] ?? 0) + work;
             if (roleDef.role === "stationaryHarvester") {
               ctx.stationaryBySource[pickedId] = (ctx.stationaryBySource[pickedId] ?? 0) + 1;
             }
+          }
+          if (memory.sourceId != null && roleDef.role === "upgrader") {
+            const pickedId = memory.sourceId;
+            ctx.upgradersPerSource[pickedId] = (ctx.upgradersPerSource[pickedId] ?? 0) + 1;
           }
           return;
         }
