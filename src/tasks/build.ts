@@ -1,3 +1,46 @@
+const extensionsNeeded = (room: Room): number => {
+  const controller = room.controller;
+  if (controller == null) return 0;
+
+  const quota: number = (CONTROLLER_STRUCTURES[STRUCTURE_EXTENSION] as Record<number, number>)[controller.level] ?? 0;
+  const built = room.find(FIND_MY_STRUCTURES, { filter: s => s.structureType === STRUCTURE_EXTENSION }).length;
+  const sites = room.find(FIND_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_EXTENSION }).length;
+
+  return Math.max(0, quota - built - sites);
+};
+
+const isValidExtensionTile = (room: Room, terrain: RoomTerrain, x: number, y: number): boolean => {
+  if (x < 1 || x > 48 || y < 1 || y > 48) return false;
+  if (terrain.get(x, y) === TERRAIN_MASK_WALL) return false;
+  if (room.lookForAt(LOOK_STRUCTURES, x, y).length > 0) return false;
+  if (room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0) return false;
+  return true;
+};
+
+const placeExtensionSites = (room: Room): void => {
+  let needed = extensionsNeeded(room);
+  if (needed === 0) return;
+
+  const spawn = room.find(FIND_MY_SPAWNS)[0];
+  if (spawn == null) return;
+
+  const terrain = room.getTerrain();
+  const { x: sx, y: sy } = spawn.pos;
+
+  for (let radius = 1; radius <= 10 && needed > 0; radius++) {
+    for (let dx = -radius; dx <= radius && needed > 0; dx++) {
+      for (let dy = -radius; dy <= radius && needed > 0; dy++) {
+        if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue; // perimeter only
+        const x = sx + dx;
+        const y = sy + dy;
+        if (!isValidExtensionTile(room, terrain, x, y)) continue;
+        room.createConstructionSite(x, y, STRUCTURE_EXTENSION);
+        needed--;
+      }
+    }
+  }
+};
+
 const hasAdjacentContainerCoverage = (source: Source): boolean => {
   const adjacentStructures = source.pos.findInRange(FIND_STRUCTURES, 1);
   if (adjacentStructures.some(structure => structure.structureType === STRUCTURE_CONTAINER)) {
@@ -53,6 +96,8 @@ export const runBuildTask = (creep: Creep): boolean => {
       creep.room.createConstructionSite(openTile.x, openTile.y, STRUCTURE_CONTAINER);
     }
   }
+
+  placeExtensionSites(creep.room);
 
   if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
     const storage = creep.room.storage;
