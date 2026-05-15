@@ -22,7 +22,7 @@ describe("runUpgradeTask", () => {
     let upgradeTarget: object | null = null;
 
     const creep = {
-      store: { getUsedCapacity: (): number => 10 },
+      store: { getUsedCapacity: (): number => 10, getFreeCapacity: (): number => 0 },
       room: { controller, storage: undefined },
       pos: { findClosestByRange: (): null => null },
       withdraw: (): number => 0,
@@ -45,7 +45,7 @@ describe("runUpgradeTask", () => {
     let moveTarget: object | null = null;
 
     const creep = {
-      store: { getUsedCapacity: (): number => 10 },
+      store: { getUsedCapacity: (): number => 10, getFreeCapacity: (): number => 0 },
       room: { controller, storage: undefined },
       pos: { findClosestByRange: (): null => null },
       withdraw: (): number => 0,
@@ -64,7 +64,7 @@ describe("runUpgradeTask", () => {
 
   it("returns true (complete) when creep has energy but no controller exists", () => {
     const creep = {
-      store: { getUsedCapacity: (): number => 10 },
+      store: { getUsedCapacity: (): number => 10, getFreeCapacity: (): number => 0 },
       room: { controller: undefined, storage: undefined },
       pos: { findClosestByRange: (): null => null },
       withdraw: (): number => 0,
@@ -74,6 +74,30 @@ describe("runUpgradeTask", () => {
     };
 
     assert.isTrue(runUpgradeTask(creep as any));
+  });
+
+  it("upgrades with partial energy when no source is available rather than idling", () => {
+    const controller = { id: "controller1" };
+    let upgradeTarget: object | null = null;
+
+    const creep = {
+      memory: {},
+      store: { getUsedCapacity: (): number => 5, getFreeCapacity: (): number => 45 },
+      room: { controller, storage: undefined },
+      pos: { findClosestByRange: (): null => null },
+      withdraw: (): number => 0,
+      harvest: (): number => 0,
+      upgradeController: (target: object): number => {
+        upgradeTarget = target;
+        return 0;
+      },
+      moveTo: (): number => 0
+    };
+
+    const done = runUpgradeTask(creep as any);
+
+    assert.isFalse(done);
+    assert.strictEqual(upgradeTarget, controller);
   });
 
   // -------------------------------------------------------------------------
@@ -86,7 +110,7 @@ describe("runUpgradeTask", () => {
     let withdrawResource: ResourceConstant | null = null;
 
     const creep = {
-      store: { getUsedCapacity: (): number => 0 },
+      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
       room: {
         controller: { id: "controller1" },
         storage
@@ -114,7 +138,7 @@ describe("runUpgradeTask", () => {
     let moveTarget: object | null = null;
 
     const creep = {
-      store: { getUsedCapacity: (): number => 0 },
+      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
       room: { controller: { id: "controller1" }, storage },
       pos: { findClosestByRange: (): null => null },
       withdraw: (): number => (global as any).ERR_NOT_IN_RANGE,
@@ -137,7 +161,7 @@ describe("runUpgradeTask", () => {
 
     const creep = {
       memory: {},
-      store: { getUsedCapacity: (): number => 0 },
+      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
       room: { controller: { id: "controller1" }, storage: undefined },
       pos: { findClosestByRange: (): object => source },
       withdraw: (): number => 0,
@@ -162,7 +186,7 @@ describe("runUpgradeTask", () => {
 
     const creep = {
       memory: {},
-      store: { getUsedCapacity: (): number => 0 },
+      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
       room: {
         controller: { id: "controller1" },
         storage: { id: "storage1", store: { getUsedCapacity: (): number => 0 } }
@@ -192,7 +216,7 @@ describe("runUpgradeTask", () => {
 
     const creep = {
       memory: {},
-      store: { getUsedCapacity: (): number => 0 },
+      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
       room: { controller: { id: "controller1" }, storage: undefined },
       pos: { findClosestByRange: (): object => source },
       withdraw: (): number => 0,
@@ -214,7 +238,7 @@ describe("runUpgradeTask", () => {
 
     const creep = {
       memory: {},
-      store: { getUsedCapacity: (): number => 0 },
+      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
       room: { controller: { id: "controller1" }, storage: undefined },
       pos: { findClosestByRange: (): null => null },
       withdraw: (): number => 0,
@@ -240,7 +264,7 @@ describe("runUpgradeTask", () => {
 
     const creep = {
       memory: { role: "upgrader", room: "W1N1", sourceId: "pinned-src" },
-      store: { getUsedCapacity: (): number => 0 },
+      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
       room: { controller: { id: "c1" }, storage: undefined },
       pos: { findClosestByRange: (): null => { findClosestCalls++; return null; } },
       withdraw: (): number => 0,

@@ -1,15 +1,16 @@
 /**
  * Upgrade task — upgrades the room controller.
- * Self-contained: gathers energy when empty (storage withdraw → source harvest),
- * then upgrades. Returns true (task complete) when the store empties mid-upgrade
- * and there is no immediately available energy to refill from.
+ * Self-contained: gathers energy until full (storage withdraw → source harvest),
+ * then upgrades. If no energy source is reachable but the creep carries some
+ * energy, it upgrades with whatever it has rather than idling.
  *
- * Completion is detected at the top of the next tick when the store hits zero.
+ * Returns true (task complete) only when the store is empty and no energy
+ * source is available — signals the evaluator to re-assign a task.
  */
 export const runUpgradeTask = (creep: Creep): boolean => {
-  const hasEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
+  const isFull = creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0;
 
-  if (!hasEnergy) {
+  if (!isFull) {
     // Try storage first
     const storage = creep.room.storage;
     if (storage != null && storage.store.getUsedCapacity(RESOURCE_ENERGY) > 0) {
@@ -31,14 +32,19 @@ export const runUpgradeTask = (creep: Creep): boolean => {
 
     // Fall back to closest active source (1-source rooms / no pin)
     const source = creep.pos.findClosestByRange(FIND_SOURCES_ACTIVE);
-    if (source == null) return true; // nothing to gather — task complete, re-evaluate
+    if (source != null) {
+      const harvestResult = creep.harvest(source);
+      if (harvestResult === ERR_NOT_IN_RANGE) creep.moveTo(source);
+      return false;
+    }
 
-    const harvestResult = creep.harvest(source);
-    if (harvestResult === ERR_NOT_IN_RANGE) creep.moveTo(source);
-    return false;
+    // No energy source available — upgrade with partial energy if we have any,
+    // otherwise signal re-evaluation.
+    if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) return true;
+    // fall through to upgrade with whatever energy is carried
   }
 
-  // Creep has energy — upgrade the controller
+  // Creep is full (or has partial energy with no source) — upgrade the controller
   const controller = creep.room.controller;
   if (controller == null) return true;
 
