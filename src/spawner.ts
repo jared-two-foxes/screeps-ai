@@ -415,7 +415,7 @@ const inactiveQueue: SpawnQueueRole[] = [
       const workPerCreep = Math.max(countWorkPartsInBody(ctx.workerBody), 1);
       return ctx.spawnSourceIds.reduce((sum, sourceId) => {
         const workCap = ctx.neededWorkCapPerSource[sourceId] ?? SOURCE_WORK_SATURATION;
-        return sum + Math.ceil(workCap / workPerCreep);
+        return sum + Math.min(Math.ceil(workCap / workPerCreep), SOURCE_WORK_SATURATION);
       }, 0);
     },
     pickSourceId: ctx => pickLeastSaturatedSource(ctx, spawnSupplySources(ctx), ctx.neededWorkCapPerSource)

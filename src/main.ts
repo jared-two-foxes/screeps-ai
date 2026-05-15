@@ -28,8 +28,10 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
     const done = runTask(creep);
     if (done) {
-      // Re-evaluate and store new task; it will execute on the next tick
+      // Re-evaluate and immediately execute the new task in the same tick so
+      // the creep does not idle for a tick at the source after filling up.
       creep.memory.task = evaluateTask(creep);
+      runTask(creep);
     }
   }
 });

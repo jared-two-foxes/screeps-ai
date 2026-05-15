@@ -268,7 +268,10 @@ describe("spawner (Track A scaffold)", () => {
       assert.deepEqual(spawnUpgrader.calls[0].body, ["work", "carry", "move", "work", "carry", "move"]);
     });
 
-    it("scales harvester target with distance (can exceed legacy fixed-5 saturation)", () => {
+    it("caps harvester count at SOURCE_WORK_SATURATION (5) regardless of source distance", () => {
+      // Distance-formula raw target for a path-length-30 source would be 23, but the
+      // hard cap of SOURCE_WORK_SATURATION (5) applies.  With 5 harvesters already
+      // present the spawner should consider the source saturated and spawn a builder.
       const spawn = createMockSpawn({ energyCapacityAvailable: 300, sources: [bareSource("src-a", 30, 30)] });
       (global as any).Game.spawns = { Spawn1: spawn };
       (global as any).PathFinder.search = () => ({ path: new Array(30).fill({}), incomplete: false });
@@ -283,8 +286,7 @@ describe("spawner (Track A scaffold)", () => {
       runSpawner();
 
       assert.equal(spawn.calls.length, 1);
-      assert.equal(spawn.calls[0].memory?.role, "harvester");
-      assert.equal(spawn.calls[0].memory?.sourceId, "src-a");
+      assert.equal(spawn.calls[0].memory?.role, "builder");
     });
   });
 

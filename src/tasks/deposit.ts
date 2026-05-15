@@ -31,7 +31,7 @@ export const runDepositTask = (creep: Creep): boolean => {
   const result = creep.transfer(target, RESOURCE_ENERGY);
 
   if (result === ERR_FULL) return true;
-  if (result === ERR_NOT_IN_RANGE) creep.moveTo(target);
+  if (result === ERR_NOT_IN_RANGE) creep.moveTo(target, { reusePath: 1 });
 
   return false;
 };

@@ -12,7 +12,7 @@ export const runHarvestTask = (creep: Creep): boolean => {
 
   const result = creep.harvest(source);
   if (result === ERR_NOT_IN_RANGE) {
-    creep.moveTo(source);
+    creep.moveTo(source, { reusePath: 1 });
   }
 
   return false;
