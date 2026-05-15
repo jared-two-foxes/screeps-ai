@@ -22,6 +22,7 @@ describe("runUpgradeTask", () => {
     let upgradeTarget: object | null = null;
 
     const creep = {
+      memory: {},
       store: { getUsedCapacity: (): number => 10, getFreeCapacity: (): number => 0 },
       room: { controller, storage: undefined },
       pos: { findClosestByRange: (): null => null },
@@ -45,6 +46,7 @@ describe("runUpgradeTask", () => {
     let moveTarget: object | null = null;
 
     const creep = {
+      memory: {},
       store: { getUsedCapacity: (): number => 10, getFreeCapacity: (): number => 0 },
       room: { controller, storage: undefined },
       pos: { findClosestByRange: (): null => null },
@@ -64,6 +66,7 @@ describe("runUpgradeTask", () => {
 
   it("returns true (complete) when creep has energy but no controller exists", () => {
     const creep = {
+      memory: {},
       store: { getUsedCapacity: (): number => 10, getFreeCapacity: (): number => 0 },
       room: { controller: undefined, storage: undefined },
       pos: { findClosestByRange: (): null => null },
@@ -100,6 +103,33 @@ describe("runUpgradeTask", () => {
     assert.strictEqual(upgradeTarget, controller);
   });
 
+  it("continues upgrading on subsequent ticks after partial energy use (flag prevents re-entering gather phase)", () => {
+    const controller = { id: "controller1" };
+    let upgradeTarget: object | null = null;
+
+    // Simulate tick 2: creep spent 1 energy on tick 1 (was full → flag set to false),
+    // now has 49/50 — neither full nor empty, so no transition fires.
+    const creep = {
+      memory: { upgradeGathering: false },
+      store: { getUsedCapacity: (): number => 49, getFreeCapacity: (): number => 1 },
+      room: { controller, storage: undefined },
+      pos: { findClosestByRange: (): null => null },
+      withdraw: (): number => 0,
+      harvest: (): number => 0,
+      upgradeController: (target: object): number => {
+        upgradeTarget = target;
+        return 0;
+      },
+      moveTo: (): number => 0
+    };
+
+    const done = runUpgradeTask(creep as any);
+
+    assert.isFalse(done);
+    assert.strictEqual(upgradeTarget, controller);
+    assert.isFalse((creep.memory as any).upgradeGathering);
+  });
+
   // -------------------------------------------------------------------------
   // Creep is empty — energy gathering branch
   // -------------------------------------------------------------------------
@@ -110,6 +140,7 @@ describe("runUpgradeTask", () => {
     let withdrawResource: ResourceConstant | null = null;
 
     const creep = {
+      memory: {},
       store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
       room: {
         controller: { id: "controller1" },
@@ -138,6 +169,7 @@ describe("runUpgradeTask", () => {
     let moveTarget: object | null = null;
 
     const creep = {
+      memory: {},
       store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
       room: { controller: { id: "controller1" }, storage },
       pos: { findClosestByRange: (): null => null },
