@@ -436,17 +436,80 @@ const inactiveQueue: SpawnQueueRole[] = [
   }
 ];
 
+/**
+ * Intermediate queue: activates as soon as any source has a built container.
+ * Worker-body harvesters dump energy into the container; haulers ferry it to
+ * spawn/storage.  Cheaper than full stationaryHarvester bodies so this tier
+ * can engage at RCL 2 without waiting for 600-energy capacity.
+ */
+const containerQueue: SpawnQueueRole[] = [
+  {
+    role: "harvester",
+    body: ctx => ctx.workerBody,
+    namePrefix: "Harvester",
+    targetCount: ctx => {
+      const workPerCreep = Math.max(countWorkPartsInBody(ctx.workerBody), 1);
+      return ctx.spawnSourceIds.reduce((sum, sourceId) => {
+        // Container sources: harvesters stay put, no travel time — only
+        // SOURCE_WORK_SATURATION WORK parts needed to fully saturate.
+        // Non-container sources: keep the distance-based travel-time formula.
+        const workCap = ctx.containerSourceIds.has(sourceId)
+          ? SOURCE_WORK_SATURATION
+          : (ctx.neededWorkCapPerSource[sourceId] ?? SOURCE_WORK_SATURATION);
+        return sum + Math.min(Math.ceil(workCap / workPerCreep), SOURCE_WORK_SATURATION);
+      }, 0);
+    },
+    pickSourceId: ctx => {
+      const caps: Record<string, number> = {};
+      for (const id of ctx.spawnSourceIds) {
+        caps[id] = ctx.containerSourceIds.has(id)
+          ? SOURCE_WORK_SATURATION
+          : (ctx.neededWorkCapPerSource[id] ?? SOURCE_WORK_SATURATION);
+      }
+      return pickLeastSaturatedSource(ctx, spawnSupplySources(ctx), caps);
+    }
+  },
+  {
+    role: "hauler",
+    body: () => bodies.hauler,
+    namePrefix: "Hauler",
+    targetCount: ctx => ctx.containerSourceIds.size + 1
+  },
+  {
+    role: "builder",
+    body: ctx => ctx.workerBody,
+    namePrefix: "Builder",
+    targetCount: () => 1
+  },
+  {
+    role: "upgrader",
+    body: ctx => ctx.workerBody,
+    namePrefix: "Upgrader",
+    targetCount: (ctx, counts) =>
+      canSupportAnotherUpgrader(ctx, counts) ? (counts.upgrader ?? 0) + 1 : Math.min(counts.upgrader ?? 0, 1),
+    pickSourceId: ctx => pickLeastSaturatedControllerSource(ctx)
+  }
+];
+
 // ---------------------------------------------------------------------------
 // Readiness — exported for tests
 // ---------------------------------------------------------------------------
 
-export const canUseStationaryStrategy = (room: Room): boolean => {
-  if (room.energyCapacityAvailable < 600) return false;
-
+/**
+ * True as soon as any source has a built adjacent container, regardless of
+ * energy capacity.  Activates the intermediate container-harvester + hauler
+ * strategy before the room can afford full stationary-harvester bodies.
+ */
+export const canUseContainerStrategy = (room: Room): boolean => {
   const sources = room.find(FIND_SOURCES);
   return sources.some(source =>
     source.pos.findInRange(FIND_STRUCTURES, 1).some(s => s.structureType === STRUCTURE_CONTAINER)
   );
+};
+
+export const canUseStationaryStrategy = (room: Room): boolean => {
+  if (room.energyCapacityAvailable < 600) return false;
+  return canUseContainerStrategy(room);
 };
 
 // ---------------------------------------------------------------------------
@@ -480,7 +543,9 @@ export const runSpawner = (): void => {
     const spawns = spawnsByRoom[roomName];
     const room = spawns[0].room;
     const ctx = buildRoomContext(room);
-    const queue = canUseStationaryStrategy(room) ? activeQueue : inactiveQueue;
+    const queue = canUseStationaryStrategy(room) ? activeQueue
+      : canUseContainerStrategy(room) ? containerQueue
+      : inactiveQueue;
     const counts: Record<string, number> = roomCounts[roomName] ?? {};
 
     for (const roleDef of queue) {

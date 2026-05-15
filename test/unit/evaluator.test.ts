@@ -7,6 +7,7 @@ import { Game, Memory } from "./mock";
 // ---------------------------------------------------------------------------
 const makeCreep = (opts: {
   role?: string;
+  sourceId?: string;
   energyCarried?: number;
   energyFree?: number;
   spawnEnergy?: number;
@@ -19,6 +20,7 @@ const makeCreep = (opts: {
 }): any => {
   const {
     role,
+    sourceId,
     energyCarried = 0,
     energyFree = 300,
     spawnEnergy = 0,
@@ -45,8 +47,12 @@ const makeCreep = (opts: {
 
   const sources = Array.from({ length: activeSources }, (_, i) => ({ id: `source${i}` }));
 
+  const memory: Record<string, unknown> = {};
+  if (role != null) memory.role = role;
+  if (sourceId != null) memory.sourceId = sourceId;
+
   return {
-    memory: role != null ? { role } : {},
+    memory,
     store: { getUsedCapacity: (): number => energyCarried, getFreeCapacity: (): number => energyFree },
     pos: { findClosestByRange: (): object | null => spawn },
     room: {
@@ -369,5 +375,77 @@ describe("evaluateTask", () => {
 
     assert.equal(evaluateTask(harvester), "upgrade");
     assert.equal(evaluateTask(upgrader), "harvest");
+  });
+
+  // -------------------------------------------------------------------------
+  // Container-harvester routing
+  // -------------------------------------------------------------------------
+
+  describe("harvester pinned to container source", () => {
+    const makeContainerSource = (id: string): object => ({
+      id,
+      pos: {
+        findInRange: (findType: number): object[] => {
+          if (findType === (global as any).FIND_STRUCTURES) {
+            return [{ structureType: (global as any).STRUCTURE_CONTAINER }];
+          }
+          return [];
+        }
+      }
+    });
+
+    const makeBarePinnedSource = (id: string): object => ({
+      id,
+      pos: {
+        findInRange: (_findType: number): object[] => []
+      }
+    });
+
+    beforeEach(() => {
+      (global as any).Game.getObjectById = (_id: string): null => null;
+    });
+
+    it("returns 'harvestAndDeposit' when pinned source has an adjacent container", () => {
+      const srcId = "src-container";
+      (global as any).Game.getObjectById = (id: string): object | null =>
+        id === srcId ? makeContainerSource(srcId) : null;
+
+      const creep = makeCreep({ role: "harvester", sourceId: srcId });
+      assert.equal(evaluateTask(creep), "harvestAndDeposit");
+    });
+
+    it("falls through to generic logic when pinned source has no adjacent container", () => {
+      const srcId = "src-bare";
+      (global as any).Game.getObjectById = (id: string): object | null =>
+        id === srcId ? makeBarePinnedSource(srcId) : null;
+
+      // Creep is empty, active source available → should harvest
+      const creep = makeCreep({ role: "harvester", sourceId: srcId, activeSources: 1 });
+      assert.equal(evaluateTask(creep), "harvest");
+    });
+
+    it("falls through to generic logic when getObjectById returns null", () => {
+      (global as any).Game.getObjectById = (_id: string): null => null;
+
+      const creep = makeCreep({ role: "harvester", sourceId: "missing-source", activeSources: 1 });
+      assert.equal(evaluateTask(creep), "harvest");
+    });
+
+    it("spawn-critical deposit takes priority over container-harvester route", () => {
+      const srcId = "src-container";
+      (global as any).Game.getObjectById = (id: string): object | null =>
+        id === srcId ? makeContainerSource(srcId) : null;
+
+      // Spawn is critical (<30%), creep has energy → should deposit, not harvestAndDeposit
+      const creep = makeCreep({
+        role: "harvester",
+        sourceId: srcId,
+        energyCarried: 10,
+        spawnEnergy: 60,
+        spawnCapacity: 300,
+        spawnFree: 240
+      });
+      assert.equal(evaluateTask(creep), "deposit");
+    });
   });
 });

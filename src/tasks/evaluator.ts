@@ -49,6 +49,20 @@ export const evaluateTask = (creep: Creep): TaskType => {
     if (!creepHasEnergy && sourceAvailable) return "harvest";
   }
 
+  // Harvester pinned to a source that has an adjacent container: dump energy
+  // into the container and let haulers carry it to spawn/storage.  The
+  // spawn-critical check above already handled the case where the spawn needs
+  // a top-up right now.
+  if (role === "harvester" && creep.memory.sourceId != null) {
+    const pinnedSource = Game.getObjectById<Source>(creep.memory.sourceId);
+    if (pinnedSource != null) {
+      const hasAdjacentContainer = pinnedSource.pos
+        .findInRange(FIND_STRUCTURES, 1)
+        .some((s: Structure) => s.structureType === STRUCTURE_CONTAINER);
+      if (hasAdjacentContainer) return "harvestAndDeposit";
+    }
+  }
+
   // Priority 2 — creep is full, deliver energy
   if (creepIsFull) {
     if (canDeposit) return "deposit";

@@ -1,6 +1,6 @@
 import { assert } from "chai";
 import * as spawnerModule from "../../src/spawner";
-import { canUseStationaryStrategy, runSpawner } from "../../src/spawner";
+import { canUseContainerStrategy, canUseStationaryStrategy, runSpawner } from "../../src/spawner";
 import { Game, Memory } from "./mock";
 
 interface SpawnCall {
@@ -114,6 +114,33 @@ describe("spawner (Track A scaffold)", () => {
         find: (constant: number): any[] => (constant === (global as any).FIND_SOURCES ? [covered] : [])
       };
       assert.isTrue(canUseStationaryStrategy(room as any));
+    });
+  });
+
+  describe("canUseContainerStrategy", () => {
+    it("returns false when no source has an adjacent container", () => {
+      const room = {
+        find: (constant: number): any[] =>
+          constant === (global as any).FIND_SOURCES ? [bareSource("src-a", 5, 5)] : []
+      };
+      assert.isFalse(canUseContainerStrategy(room as any));
+    });
+
+    it("returns true when at least one source has an adjacent container", () => {
+      const room = {
+        find: (constant: number): any[] =>
+          constant === (global as any).FIND_SOURCES ? [sourceWithContainer("src-a", 5, 5)] : []
+      };
+      assert.isTrue(canUseContainerStrategy(room as any));
+    });
+
+    it("returns true even when energy capacity is below 600", () => {
+      const room = {
+        energyCapacityAvailable: 300,
+        find: (constant: number): any[] =>
+          constant === (global as any).FIND_SOURCES ? [sourceWithContainer("src-a", 5, 5)] : []
+      };
+      assert.isTrue(canUseContainerStrategy(room as any));
     });
   });
 
@@ -287,6 +314,68 @@ describe("spawner (Track A scaffold)", () => {
 
       assert.equal(spawn.calls.length, 1);
       assert.equal(spawn.calls[0].memory?.role, "builder");
+    });
+  });
+
+  describe("containerQueue behavior", () => {
+    it("selects containerQueue (spawns hauler) when container exists but capacity is below 600", () => {
+      // inactiveQueue never spawns haulers; seeing a hauler spawn confirms containerQueue was used.
+      const spawn = createMockSpawn({
+        energyCapacityAvailable: 300,
+        sources: [sourceWithContainer("src-a", 5, 5)]
+      });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      // 5 harvesters already present — harvester slot is saturated.
+      (global as any).Game.creeps = {
+        H1: makeHarvester("W1N1", "src-a"),
+        H2: makeHarvester("W1N1", "src-a"),
+        H3: makeHarvester("W1N1", "src-a"),
+        H4: makeHarvester("W1N1", "src-a"),
+        H5: makeHarvester("W1N1", "src-a")
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "hauler");
+    });
+
+    it("uses activeQueue (spawns stationaryHarvester) when capacity >= 600 and container exists", () => {
+      const spawn = createMockSpawn({
+        energyCapacityAvailable: 600,
+        sources: [sourceWithContainer("src-a", 5, 5)]
+      });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.creeps = {};
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "stationaryHarvester");
+    });
+
+    it("containerQueue harvester target uses SOURCE_WORK_SATURATION for container sources", () => {
+      // Container source at range 30 — inactiveQueue raw target would be 23; containerQueue
+      // should use SOURCE_WORK_SATURATION (5) since the harvester stays put.
+      // With 5 harvesters already present the next slot should be hauler.
+      const spawn = createMockSpawn({
+        energyCapacityAvailable: 300,
+        sources: [sourceWithContainer("src-a", 30, 30)]
+      });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).PathFinder.search = () => ({ path: new Array(30).fill({}), incomplete: false });
+      (global as any).Game.creeps = {
+        H1: makeHarvester("W1N1", "src-a"),
+        H2: makeHarvester("W1N1", "src-a"),
+        H3: makeHarvester("W1N1", "src-a"),
+        H4: makeHarvester("W1N1", "src-a"),
+        H5: makeHarvester("W1N1", "src-a")
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "hauler");
     });
   });
 
