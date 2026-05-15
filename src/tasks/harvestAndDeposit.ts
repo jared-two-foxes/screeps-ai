@@ -1,9 +1,12 @@
 /**
  * Harvest-and-deposit task — stationary harvester behavior.
  * Never completes on its own; the creep keeps harvesting and offloading forever.
+ * Uses the creep's pinned sourceId when set, otherwise the nearest source.
  */
 export const runHarvestAndDepositTask = (creep: Creep): boolean => {
-  const source = creep.pos.findClosestByRange(FIND_SOURCES);
+  const pinnedId = creep.memory?.sourceId;
+  const pinned = pinnedId != null ? Game.getObjectById<Source>(pinnedId) : null;
+  const source = pinned ?? creep.pos.findClosestByRange(FIND_SOURCES);
   if (source == null) return false;
 
   if (creep.store.getFreeCapacity() > 0) {

@@ -133,8 +133,7 @@ describe("runDepositTask", () => {
       room: { storage },
       pos: {
         findClosestByRange: (): object => spawn,
-        getRangeTo: (target: { id: string }): number =>
-          target.id === "storage1" ? 2 : 5
+        getRangeTo: (target: { id: string }): number => (target.id === "storage1" ? 2 : 5)
       },
       transfer: (target: object): number => {
         transferTarget = target;
@@ -161,8 +160,7 @@ describe("runDepositTask", () => {
       room: { storage },
       pos: {
         findClosestByRange: (): object => spawn,
-        getRangeTo: (target: { id: string }): number =>
-          target.id === "spawn1" ? 1 : 4
+        getRangeTo: (target: { id: string }): number => (target.id === "spawn1" ? 1 : 4)
       },
       transfer: (target: object): number => {
         transferTarget = target;

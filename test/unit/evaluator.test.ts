@@ -41,10 +41,7 @@ const makeCreep = (opts: {
         }
       : null;
 
-  const storage =
-    storageFree > 0
-      ? { store: { getFreeCapacity: (): number => storageFree } }
-      : null;
+  const storage = storageFree > 0 ? { store: { getFreeCapacity: (): number => storageFree } } : null;
 
   const sources = Array.from({ length: activeSources }, (_, i) => ({ id: `source${i}` }));
 
@@ -90,7 +87,13 @@ describe("evaluateTask", () => {
   });
 
   it("returns 'harvest' when spawn is critical and creep is empty but source is active", () => {
-    const creep = makeCreep({ energyCarried: 0, spawnEnergy: 60, spawnCapacity: 300, spawnFree: 240, activeSources: 1 });
+    const creep = makeCreep({
+      energyCarried: 0,
+      spawnEnergy: 60,
+      spawnCapacity: 300,
+      spawnFree: 240,
+      activeSources: 1
+    });
     assert.equal(evaluateTask(creep), "harvest");
   });
 
@@ -100,7 +103,13 @@ describe("evaluateTask", () => {
 
   it("returns 'deposit' when spawn has room and creep is full (non-critical)", () => {
     // spawn at 50%, creep is full
-    const creep = makeCreep({ energyCarried: 100, energyFree: 0, spawnEnergy: 150, spawnCapacity: 300, spawnFree: 150 });
+    const creep = makeCreep({
+      energyCarried: 100,
+      energyFree: 0,
+      spawnEnergy: 150,
+      spawnCapacity: 300,
+      spawnFree: 150
+    });
     assert.equal(evaluateTask(creep), "deposit");
   });
 
@@ -134,7 +143,14 @@ describe("evaluateTask", () => {
 
   it("returns 'harvest' when creep has partial energy and a source is active", () => {
     // creep is half-full; should continue harvesting rather than switching to deposit
-    const creep = makeCreep({ energyCarried: 50, energyFree: 50, spawnEnergy: 150, spawnCapacity: 300, spawnFree: 150, activeSources: 1 });
+    const creep = makeCreep({
+      energyCarried: 50,
+      energyFree: 50,
+      spawnEnergy: 150,
+      spawnCapacity: 300,
+      spawnFree: 150,
+      activeSources: 1
+    });
     assert.equal(evaluateTask(creep), "harvest");
   });
 
@@ -165,12 +181,27 @@ describe("evaluateTask", () => {
   // -------------------------------------------------------------------------
 
   it("returns 'deposit' when creep has partial energy, no active source, and spawn has room", () => {
-    const creep = makeCreep({ energyCarried: 50, energyFree: 50, spawnEnergy: 150, spawnCapacity: 300, spawnFree: 150, activeSources: 0 });
+    const creep = makeCreep({
+      energyCarried: 50,
+      energyFree: 50,
+      spawnEnergy: 150,
+      spawnCapacity: 300,
+      spawnFree: 150,
+      activeSources: 0
+    });
     assert.equal(evaluateTask(creep), "deposit");
   });
 
   it("returns 'upgrade' when creep has partial energy, no active source, and no deposit target", () => {
-    const creep = makeCreep({ energyCarried: 50, energyFree: 50, spawnEnergy: 300, spawnCapacity: 300, spawnFree: 0, storageFree: 0, activeSources: 0 });
+    const creep = makeCreep({
+      energyCarried: 50,
+      energyFree: 50,
+      spawnEnergy: 300,
+      spawnCapacity: 300,
+      spawnFree: 0,
+      storageFree: 0,
+      activeSources: 0
+    });
     assert.equal(evaluateTask(creep), "upgrade");
   });
 

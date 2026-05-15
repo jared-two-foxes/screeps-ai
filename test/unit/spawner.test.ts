@@ -29,12 +29,22 @@ interface MockSpawnOptions {
   sources?: any[];
 }
 
+const bareSource = (id: string = "source-bare"): any => ({
+  id,
+  pos: {
+    findInRange: (constant: number, _range: number): any[] => {
+      if (constant === (global as any).FIND_STRUCTURES) return [];
+      return [];
+    }
+  }
+});
+
 const createMockSpawn = (options: MockSpawnOptions = {}): MockSpawn => {
   const roomName = options.roomName ?? "W1N1";
   const spawning = options.spawning ?? null;
   const returnCode = options.returnCode ?? 0;
   const energyCapacityAvailable = options.energyCapacityAvailable ?? 300;
-  const sources = options.sources ?? [];
+  const sources = options.sources ?? [bareSource()];
   const calls: SpawnCall[] = [];
   return {
     room: {
@@ -58,13 +68,19 @@ const createMockSpawn = (options: MockSpawnOptions = {}): MockSpawn => {
   };
 };
 
-const makeSource = (adjacent: any[]): any => ({
+const makeSource = (adjacent: any[], id: string = "source-1"): any => ({
+  id,
   pos: {
     findInRange: (constant: number, _range: number): any[] => {
       if (constant === (global as any).FIND_STRUCTURES) return adjacent;
       return [];
     }
   }
+});
+
+const harvesterCreep = (room: string, sourceId: string = "source-bare"): any => ({
+  memory: { role: "harvester", room, sourceId },
+  body: [{ type: "work" }, { type: "carry" }, { type: "move" }]
 });
 
 describe("spawner", () => {
@@ -78,6 +94,9 @@ describe("spawner", () => {
     (global as any).STRUCTURE_CONTAINER = "container";
     (global as any).OK = 0;
     (global as any).ERR_NOT_ENOUGH_ENERGY = -6;
+    (global as any).WORK = "work";
+    (global as any).CARRY = "carry";
+    (global as any).MOVE = "move";
   });
 
   describe("canUseStationaryStrategy", () => {
@@ -132,8 +151,11 @@ describe("spawner", () => {
       (global as any).Game.spawns = { Spawn1: spawn };
       (global as any).Game.time = 12345;
       (global as any).Game.creeps = {
-        Harvester1: { memory: { role: "harvester", room: "W1N1" } },
-        Harvester2: { memory: { role: "harvester", room: "W1N1" } },
+        Harvester1: harvesterCreep("W1N1"),
+        Harvester2: harvesterCreep("W1N1"),
+        Harvester3: harvesterCreep("W1N1"),
+        Harvester4: harvesterCreep("W1N1"),
+        Harvester5: harvesterCreep("W1N1"),
         Builder1: { memory: { role: "builder", room: "W1N1" } }
       };
 
@@ -149,8 +171,11 @@ describe("spawner", () => {
       const spawn = createMockSpawn();
       (global as any).Game.spawns = { Spawn1: spawn };
       (global as any).Game.creeps = {
-        Harvester1: { memory: { role: "harvester", room: "W1N1" } },
-        Harvester2: { memory: { role: "harvester", room: "W1N1" } },
+        Harvester1: harvesterCreep("W1N1"),
+        Harvester2: harvesterCreep("W1N1"),
+        Harvester3: harvesterCreep("W1N1"),
+        Harvester4: harvesterCreep("W1N1"),
+        Harvester5: harvesterCreep("W1N1"),
         Builder1: { memory: { role: "builder", room: "W1N1" } },
         Upgrader1: { memory: { role: "upgrader", room: "W1N1" } }
       };
@@ -206,14 +231,25 @@ describe("spawner", () => {
       assert.equal(spawn.calls[0].memory?.role, "hauler");
     });
 
-    it("uses harvester threshold of 1 in active queue", () => {
-      const spawn = createMockSpawn({ energyCapacityAvailable: 600, sources: [sourceWithContainer()] });
+    it("spawns builder when stationary, hauler, and harvester targets are all met in active queue", () => {
+      const source = sourceWithContainer();
+      const spawn = createMockSpawn({ energyCapacityAvailable: 600, sources: [source] });
       (global as any).Game.spawns = { Spawn1: spawn };
       (global as any).Game.creeps = {
-        SH1: { memory: { role: "stationaryHarvester", room: "W1N1" } },
+        SH1: {
+          memory: { role: "stationaryHarvester", room: "W1N1", sourceId: source.id },
+          body: [
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "carry" },
+            { type: "move" }
+          ]
+        },
         H1: { memory: { role: "hauler", room: "W1N1" } },
-        H2: { memory: { role: "hauler", room: "W1N1" } },
-        Harv1: { memory: { role: "harvester", room: "W1N1" } }
+        H2: { memory: { role: "hauler", room: "W1N1" } }
       };
 
       runSpawner();
@@ -232,8 +268,7 @@ describe("spawner", () => {
         room: {
           name: "W1N1",
           energyCapacityAvailable: 600,
-          find: (constant: number): any[] =>
-            constant === (global as any).FIND_SOURCES ? sources : []
+          find: (constant: number): any[] => (constant === (global as any).FIND_SOURCES ? sources : [])
         },
         spawning: null,
         calls,
@@ -258,14 +293,208 @@ describe("spawner", () => {
     });
   });
 
+  describe("runSpawner — source-aware mining saturation", () => {
+    it("pins newly spawned harvesters to a source id (inactive queue)", () => {
+      const spawn = createMockSpawn({ sources: [bareSource("src-A")] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.creeps = {};
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "harvester");
+      assert.equal(spawn.calls[0].memory?.sourceId, "src-A");
+    });
+
+    it("distributes harvesters across sources, preferring the least saturated", () => {
+      const srcA = bareSource("src-A");
+      const srcB = bareSource("src-B");
+      const spawn = createMockSpawn({ sources: [srcA, srcB] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      // 2 WORK already pinned to srcA → spawner should pick srcB.
+      (global as any).Game.creeps = {
+        H1: harvesterCreep("W1N1", "src-A"),
+        H2: harvesterCreep("W1N1", "src-A")
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.sourceId, "src-B");
+    });
+
+    it("does not spawn more harvesters once every source is at WORK saturation", () => {
+      const srcA = bareSource("src-A");
+      const spawn = createMockSpawn({ sources: [srcA] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      // 5 WORK already assigned to srcA → harvester target = 0; only builder/upgrader remain.
+      (global as any).Game.creeps = {
+        H1: harvesterCreep("W1N1", "src-A"),
+        H2: harvesterCreep("W1N1", "src-A"),
+        H3: harvesterCreep("W1N1", "src-A"),
+        H4: harvesterCreep("W1N1", "src-A"),
+        H5: harvesterCreep("W1N1", "src-A")
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "builder");
+    });
+
+    it("auto-refills harvesters when one source loses a creep", () => {
+      const srcA = bareSource("src-A");
+      const srcB = bareSource("src-B");
+      const spawn = createMockSpawn({ sources: [srcA, srcB] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      // srcA saturated (5 WORK), srcB has only 4 WORK → next harvester should go to srcB.
+      (global as any).Game.creeps = {
+        A1: harvesterCreep("W1N1", "src-A"),
+        A2: harvesterCreep("W1N1", "src-A"),
+        A3: harvesterCreep("W1N1", "src-A"),
+        A4: harvesterCreep("W1N1", "src-A"),
+        A5: harvesterCreep("W1N1", "src-A"),
+        B1: harvesterCreep("W1N1", "src-B"),
+        B2: harvesterCreep("W1N1", "src-B"),
+        B3: harvesterCreep("W1N1", "src-B"),
+        B4: harvesterCreep("W1N1", "src-B")
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "harvester");
+      assert.equal(spawn.calls[0].memory?.sourceId, "src-B");
+    });
+
+    it("pins stationaryHarvester to a container-covered source", () => {
+      const covered = makeSource([{ structureType: "container" }], "src-covered");
+      const spawn = createMockSpawn({ energyCapacityAvailable: 600, sources: [covered] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.creeps = {};
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "stationaryHarvester");
+      assert.equal(spawn.calls[0].memory?.sourceId, "src-covered");
+    });
+
+    it("spawns one stationaryHarvester per container-covered source (active queue)", () => {
+      const srcA = makeSource([{ structureType: "container" }], "src-A");
+      const srcB = makeSource([{ structureType: "container" }], "src-B");
+      const spawn = createMockSpawn({ energyCapacityAvailable: 600, sources: [srcA, srcB] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      // Only srcA covered → next spawn should pick srcB.
+      (global as any).Game.creeps = {
+        SH1: {
+          memory: { role: "stationaryHarvester", room: "W1N1", sourceId: "src-A" },
+          body: [
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "carry" },
+            { type: "move" }
+          ]
+        }
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "stationaryHarvester");
+      assert.equal(spawn.calls[0].memory?.sourceId, "src-B");
+    });
+
+    it("targets haulers equal to container-covered sources + 1", () => {
+      const srcA = makeSource([{ structureType: "container" }], "src-A");
+      const srcB = makeSource([{ structureType: "container" }], "src-B");
+      const spawn = createMockSpawn({ energyCapacityAvailable: 600, sources: [srcA, srcB] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      // Both stationary harvesters pinned → stationary target met (2). Two haulers exist;
+      // target = 2 + 1 = 3 → should spawn another hauler.
+      (global as any).Game.creeps = {
+        SHA: {
+          memory: { role: "stationaryHarvester", room: "W1N1", sourceId: "src-A" },
+          body: [
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "carry" },
+            { type: "move" }
+          ]
+        },
+        SHB: {
+          memory: { role: "stationaryHarvester", room: "W1N1", sourceId: "src-B" },
+          body: [
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "carry" },
+            { type: "move" }
+          ]
+        },
+        H1: { memory: { role: "hauler", room: "W1N1" } },
+        H2: { memory: { role: "hauler", room: "W1N1" } }
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "hauler");
+    });
+
+    it("still spawns self-harvest harvesters for uncovered sources in active queue", () => {
+      const covered = makeSource([{ structureType: "container" }], "src-covered");
+      const uncovered = bareSource("src-uncovered");
+      const spawn = createMockSpawn({
+        energyCapacityAvailable: 600,
+        sources: [covered, uncovered]
+      });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      // Stationary covered, hauler target (1+1=2) met → harvester should target uncovered.
+      (global as any).Game.creeps = {
+        SH: {
+          memory: { role: "stationaryHarvester", room: "W1N1", sourceId: "src-covered" },
+          body: [
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "work" },
+            { type: "carry" },
+            { type: "move" }
+          ]
+        },
+        H1: { memory: { role: "hauler", room: "W1N1" } },
+        H2: { memory: { role: "hauler", room: "W1N1" } }
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "harvester");
+      assert.equal(spawn.calls[0].memory?.sourceId, "src-uncovered");
+    });
+  });
+
   describe("runSpawner — per-room counting", () => {
     it("attributes creeps to their memory.room, not current position", () => {
       const spawn = createMockSpawn({ roomName: "W1N1" });
       (global as any).Game.spawns = { Spawn1: spawn };
       (global as any).Game.creeps = {
         // Physically elsewhere but home is W1N1 — should count.
-        Harv1: { memory: { role: "harvester", room: "W1N1" } },
-        Harv2: { memory: { role: "harvester", room: "W1N1" } },
+        Harv1: harvesterCreep("W1N1"),
+        Harv2: harvesterCreep("W1N1"),
+        Harv3: harvesterCreep("W1N1"),
+        Harv4: harvesterCreep("W1N1"),
+        Harv5: harvesterCreep("W1N1"),
         Builder1: { memory: { role: "builder", room: "W1N1" } },
         Upgrader1: { memory: { role: "upgrader", room: "W1N1" } }
       };

@@ -8,7 +8,12 @@ describe("main", () => {
 
   const createUpgraderCreep = (overrides: any = {}): any => ({
     memory: { role: "upgrader", ...(overrides.memory ?? {}) },
-    room: { controller: { id: "controller1" }, storage: undefined, find: (): object[] => [{}], ...(overrides.room ?? {}) },
+    room: {
+      controller: { id: "controller1" },
+      storage: undefined,
+      find: (): object[] => [{}],
+      ...(overrides.room ?? {})
+    },
     store: {
       getUsedCapacity: (): number => 10,
       getFreeCapacity: (): number => 0,

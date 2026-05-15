@@ -12,5 +12,6 @@ declare global {
     role: "harvester" | "upgrader" | "stationaryHarvester" | "hauler" | "builder";
     room: string;
     task?: TaskType;
+    sourceId?: Id<Source>;
   }
 }

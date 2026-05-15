@@ -234,8 +234,7 @@ describe("runBuildTask", () => {
         return 0;
       },
       getTerrain: () => ({
-        get: (x: number, y: number): number =>
-          wallTiles.has(`${x},${y}`) ? (global as any).TERRAIN_MASK_WALL : 0
+        get: (x: number, y: number): number => (wallTiles.has(`${x},${y}`) ? (global as any).TERRAIN_MASK_WALL : 0)
       }),
       lookForAt: (lookType: string, x: number, y: number): object[] => {
         const key = `${x},${y}`;
