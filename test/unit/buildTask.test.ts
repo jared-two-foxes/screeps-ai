@@ -19,6 +19,7 @@ describe("runBuildTask", () => {
     (global as any).TERRAIN_MASK_WALL = 1;
     (global as any).LOOK_STRUCTURES = "structure";
     (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
+    (global as any).CREEP_LIFE_TIME = 1500; // always 1500 in Screeps
   });
 
   it("returns true only when no construction sites exist and all sources are container-covered", () => {
@@ -403,5 +404,115 @@ describe("runBuildTask", () => {
     assert.isFalse(done);
     assert.strictEqual(buildTarget, nearSite);
     assert.strictEqual(moveTarget, nearSite);
+  });
+
+  // ---------------------------------------------------------------------------
+  // canBuildExpansions gate on placeExtensionSites
+  // ---------------------------------------------------------------------------
+
+  describe("extension placement gate", () => {
+    beforeEach(() => {
+      (global as any).WORK = "work";
+      (global as any).BODYPART_COST = { work: 100, carry: 50, move: 50, tough: 10 };
+      (global as any).CREEP_LIFE_TIME = 1500;
+      (global as any).FIND_MY_SPAWNS = 4;
+      (global as any).FIND_MY_STRUCTURES = 107;
+      (global as any).STRUCTURE_EXTENSION = "extension";
+      (global as any).CONTROLLER_STRUCTURES = {
+        extension: { 1: 0, 2: 5, 3: 10, 4: 20, 5: 30, 6: 40, 7: 50, 8: 60 }
+      };
+    });
+
+    it("places extension sites when surplus income permits expansion", () => {
+      // 1 harvester with [WORK, CARRY, MOVE] → harvestRate = 2 e/tick
+      // fleetCost ≈ 200/1500 ≈ 0.133 e/tick, upgraderCount = 0
+      // canBuildExpansions(2, ~0.133, 200, 0) → remaining ≈ 1.87 ≥ 0.133 → true
+      (global as any).Game.creeps = {
+        H1: {
+          memory: { role: "harvester", room: "W1N1" },
+          body: [{ type: "work" }, { type: "carry" }, { type: "move" }]
+        }
+      };
+
+      const extensionSites: { x: number; y: number; type: string }[] = [];
+      const spawn = { pos: { x: 25, y: 25 } };
+
+      const room = {
+        name: "W1N1",
+        controller: { level: 2 },
+        storage: undefined,
+        find: (constant: number): any[] => {
+          if (constant === (global as any).FIND_SOURCES) return [];
+          if (constant === (global as any).FIND_CONSTRUCTION_SITES) return [{ id: "s1", structureType: "road" }];
+          if (constant === (global as any).FIND_MY_SPAWNS) return [spawn];
+          if (constant === (global as any).FIND_MY_STRUCTURES) return [];
+          return [];
+        },
+        createConstructionSite: (x: number, y: number, type: string): number => {
+          extensionSites.push({ x, y, type });
+          return 0;
+        },
+        getTerrain: () => ({ get: (): number => 0 }),
+        lookForAt: (): object[] => []
+      };
+
+      const creep = {
+        room,
+        store: { getUsedCapacity: (): number => 50 },
+        pos: { findClosestByRange: (): object | null => ({ id: "s1", structureType: "road" }) },
+        build: (): number => 0,
+        moveTo: (): number => 0,
+        harvest: (): number => 0,
+        withdraw: (): number => 0
+      };
+
+      runBuildTask(creep as any);
+
+      const extensionPlacements = extensionSites.filter(s => s.type === "extension");
+      assert.isAtLeast(extensionPlacements.length, 1, "should place at least one extension site when income permits");
+    });
+
+    it("does NOT place extension sites when room has no harvesting creeps", () => {
+      // No creeps → harvestRate = 0, fleetCost = 0, upgraderCount = 0
+      // canBuildExpansions(0, 0, 200, 0) → remaining = 0 < amortised → false
+      (global as any).Game.creeps = {};
+
+      const extensionSites: { x: number; y: number; type: string }[] = [];
+      const spawn = { pos: { x: 25, y: 25 } };
+
+      const room = {
+        name: "W1N1",
+        controller: { level: 2 },
+        storage: undefined,
+        find: (constant: number): any[] => {
+          if (constant === (global as any).FIND_SOURCES) return [];
+          if (constant === (global as any).FIND_CONSTRUCTION_SITES) return [{ id: "s1", structureType: "road" }];
+          if (constant === (global as any).FIND_MY_SPAWNS) return [spawn];
+          if (constant === (global as any).FIND_MY_STRUCTURES) return [];
+          return [];
+        },
+        createConstructionSite: (x: number, y: number, type: string): number => {
+          extensionSites.push({ x, y, type });
+          return 0;
+        },
+        getTerrain: () => ({ get: (): number => 0 }),
+        lookForAt: (): object[] => []
+      };
+
+      const creep = {
+        room,
+        store: { getUsedCapacity: (): number => 50 },
+        pos: { findClosestByRange: (): object | null => ({ id: "s1", structureType: "road" }) },
+        build: (): number => 0,
+        moveTo: (): number => 0,
+        harvest: (): number => 0,
+        withdraw: (): number => 0
+      };
+
+      runBuildTask(creep as any);
+
+      const extensionPlacements = extensionSites.filter(s => s.type === "extension");
+      assert.equal(extensionPlacements.length, 0, "should NOT place extension sites when room has no income");
+    });
   });
 });

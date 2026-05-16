@@ -1,3 +1,40 @@
+import { canBuildExpansions } from "spawner";
+
+const WORKER_BODY_COST = 200; // WORK(100) + CARRY(50) + MOVE(50)
+
+const computeRoomHarvestRate = (roomName: string): number => {
+  const harvestRoles = new Set(["harvester", "miner", "stationaryHarvester"]);
+  let total = 0;
+  for (const name in Game.creeps) {
+    const creep = Game.creeps[name];
+    if (creep.memory.room !== roomName) continue;
+    if (!harvestRoles.has(creep.memory.role)) continue;
+    total += creep.body.filter((p: { type: BodyPartConstant }) => p.type === WORK).length * 2;
+  }
+  return total;
+};
+
+const computeFleetMaintenanceCost = (roomName: string): number => {
+  let totalCost = 0;
+  for (const name in Game.creeps) {
+    const creep = Game.creeps[name];
+    if (creep.memory.room !== roomName) continue;
+    for (const part of creep.body as { type: BodyPartConstant }[]) {
+      totalCost += BODYPART_COST[part.type] ?? 0;
+    }
+  }
+  return totalCost / CREEP_LIFE_TIME;
+};
+
+const countUpgradersInRoom = (roomName: string): number => {
+  let count = 0;
+  for (const name in Game.creeps) {
+    const creep = Game.creeps[name];
+    if (creep.memory.room === roomName && creep.memory.role === "upgrader") count++;
+  }
+  return count;
+};
+
 const extensionsNeeded = (room: Room): number => {
   const controller = room.controller;
   if (controller == null) return 0;
@@ -97,7 +134,12 @@ export const runBuildTask = (creep: Creep): boolean => {
     }
   }
 
-  placeExtensionSites(creep.room);
+  const harvestRate = computeRoomHarvestRate(creep.room.name);
+  const fleetCost = computeFleetMaintenanceCost(creep.room.name);
+  const upgraders = countUpgradersInRoom(creep.room.name);
+  if (canBuildExpansions(harvestRate, fleetCost, WORKER_BODY_COST, upgraders)) {
+    placeExtensionSites(creep.room);
+  }
 
   if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
     const storage = creep.room.storage;

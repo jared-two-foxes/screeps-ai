@@ -107,7 +107,7 @@ describe("main", () => {
     (global as any).Memory.creeps.persistValue = "any value";
     (global as any).Memory.creeps.notPersistValue = "any value";
 
-    (global as any).Game.creeps.persistValue = createUpgraderCreep();
+    (global as any).Game = { ...(global as any).Game, creeps: { persistValue: createUpgraderCreep() } };
 
     loop();
 
