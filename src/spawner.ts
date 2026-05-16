@@ -172,7 +172,7 @@ const buildAssignedWorkBySource = (roomName: string): Record<string, number> => 
     const creep = Game.creeps[creepName];
     if (creep.memory.room !== roomName) continue;
     const role = creep.memory.role;
-    if (role !== "harvester" && role !== "stationaryHarvester") continue;
+    if (role !== "harvester" && role !== "stationaryHarvester" && role !== "miner") continue;
     const sourceId = creep.memory.sourceId;
     if (sourceId == null) continue;
     work[sourceId] = (work[sourceId] ?? 0) + countWorkParts(creep);
@@ -374,7 +374,7 @@ const activeQueue: SpawnQueueRole[] = [
   },
   {
     role: "hauler",
-    body: () => bodies.hauler,
+    body: ctx => ctx.workerBody,
     namePrefix: "Hauler",
     targetCount: ctx => ctx.containerSourceIds.size + 1
   },
@@ -471,7 +471,7 @@ const containerQueue: SpawnQueueRole[] = [
   },
   {
     role: "hauler",
-    body: () => bodies.hauler,
+    body: ctx => ctx.workerBody,
     namePrefix: "Hauler",
     targetCount: ctx => ctx.containerSourceIds.size + 1
   },
@@ -512,6 +512,35 @@ export const canUseStationaryStrategy = (room: Room): boolean => {
   return canUseContainerStrategy(room);
 };
 
+/**
+ * Returns true when income minus fleet maintenance covers the amortised cost
+ * of a new stationaryHarvester body.
+ */
+export const incomePermitsHeavyMiner = (
+  harvestRate: number,
+  fleetMaintenanceCost: number,
+  stationaryHarvesterBodyCost: number
+): boolean => harvestRate - fleetMaintenanceCost >= stationaryHarvesterBodyCost / CREEP_LIFE_TIME;
+
+/**
+ * Returns true when surplus income (after existing upgrader maintenance) is
+ * enough to cover at least one additional upgrader — meaning the room can
+ * afford to build extensions / grow.
+ *
+ * Note: this formula is intentionally stricter than canSupportAnotherUpgrader.
+ * It deducts existing upgrader maintenance before comparing.
+ */
+export const canBuildExpansions = (
+  harvestRate: number,
+  fleetMaintenanceCost: number,
+  workerBodyCost: number,
+  upgraderCount: number
+): boolean => {
+  const amortised = workerBodyCost / CREEP_LIFE_TIME;
+  const remaining = harvestRate - fleetMaintenanceCost - upgraderCount * amortised;
+  return remaining >= amortised;
+};
+
 // ---------------------------------------------------------------------------
 // Main spawn loop
 // ---------------------------------------------------------------------------
@@ -548,12 +577,15 @@ export const runSpawner = (): void => {
       : inactiveQueue;
     const counts: Record<string, number> = roomCounts[roomName] ?? {};
 
+    const usedSpawns = new Set<StructureSpawn>();
+
     for (const roleDef of queue) {
       const currentCount = counts[roleDef.role] ?? 0;
       const target = roleDef.targetCount(ctx, counts);
       if (currentCount >= target) continue;
 
       for (const spawn of spawns) {
+        if (usedSpawns.has(spawn)) continue; // skip spawns already used this tick
         const baseName = `${roleDef.namePrefix}_${Game.time}`;
         const creepName = attemptIndex === 0 ? baseName : `${baseName}_${attemptIndex}`;
         attemptIndex++;
@@ -586,7 +618,8 @@ export const runSpawner = (): void => {
             const pickedId = memory.sourceId;
             ctx.upgradersPerSource[pickedId] = (ctx.upgradersPerSource[pickedId] ?? 0) + 1;
           }
-          return;
+          usedSpawns.add(spawn);
+          break; // done with this role; continue outer loop
         }
       }
     }

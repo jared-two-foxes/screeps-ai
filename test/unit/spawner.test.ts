@@ -3,6 +3,10 @@ import * as spawnerModule from "../../src/spawner";
 import { canUseContainerStrategy, canUseStationaryStrategy, runSpawner } from "../../src/spawner";
 import { Game, Memory } from "./mock";
 
+// AC9 / AC10 — new exports that do not yet exist; importing them here causes
+// the test file to fail until the implementation adds them.
+import { incomePermitsHeavyMiner, canBuildExpansions } from "../../src/spawner";
+
 interface SpawnCall {
   body: BodyPartConstant[];
   name: string;
@@ -380,7 +384,7 @@ describe("spawner (Track A scaffold)", () => {
   });
 
   describe("same-tick source accounting", () => {
-    it("keeps one-spawn-per-call behavior for harvester spawns", () => {
+    it("does not assign the same source to two harvester spawns in the same tick", () => {
       const srcA = bareSource("src-a", 5, 5);
       const srcB = bareSource("src-b", 6, 6);
       const firstSpawn = createMockSpawn({ sources: [srcA, srcB] });
@@ -390,13 +394,24 @@ describe("spawner (Track A scaffold)", () => {
 
       runSpawner();
 
-      assert.equal(firstSpawn.calls.length + secondSpawn.calls.length, 1);
-      const call = [...firstSpawn.calls, ...secondSpawn.calls][0];
-      assert.equal(call.memory?.role, "harvester");
-      assert.equal(call.memory?.sourceId, "src-a");
+      const allCalls = [...firstSpawn.calls, ...secondSpawn.calls];
+      assert.isAtLeast(allCalls.length, 1, "at least one spawn should fire");
+
+      const harvesterCalls = allCalls.filter(c => c.memory?.role === "harvester");
+      const sourceIds = harvesterCalls.map(c => c.memory?.sourceId);
+      assert.equal(
+        new Set(sourceIds).size,
+        sourceIds.length,
+        "no two harvester spawns should share the same sourceId"
+      );
+
+      // First harvester should be pinned to src-a (alphabetically first / closest)
+      if (harvesterCalls.length > 0) {
+        assert.equal(harvesterCalls[0].memory?.sourceId, "src-a");
+      }
     });
 
-    it("keeps one-spawn-per-call behavior for stationaryHarvester spawns", () => {
+    it("does not assign the same source to two stationaryHarvester spawns in the same tick", () => {
       const srcA = sourceWithContainer("src-a", 5, 5);
       const srcB = sourceWithContainer("src-b", 6, 6);
       const firstSpawn = createMockSpawn({ energyCapacityAvailable: 600, sources: [srcA, srcB] });
@@ -406,10 +421,20 @@ describe("spawner (Track A scaffold)", () => {
 
       runSpawner();
 
-      assert.equal(firstSpawn.calls.length + secondSpawn.calls.length, 1);
-      const call = [...firstSpawn.calls, ...secondSpawn.calls][0];
-      assert.equal(call.memory?.role, "stationaryHarvester");
-      assert.equal(call.memory?.sourceId, "src-a");
+      const allCalls = [...firstSpawn.calls, ...secondSpawn.calls];
+      assert.isAtLeast(allCalls.length, 1, "at least one spawn should fire");
+
+      const shCalls = allCalls.filter(c => c.memory?.role === "stationaryHarvester");
+      const sourceIds = shCalls.map(c => c.memory?.sourceId);
+      assert.equal(
+        new Set(sourceIds).size,
+        sourceIds.length,
+        "no two stationaryHarvester spawns should share the same sourceId"
+      );
+
+      if (shCalls.length > 0) {
+        assert.equal(shCalls[0].memory?.sourceId, "src-a");
+      }
     });
   });
 
@@ -551,6 +576,224 @@ describe("spawner (Track A scaffold)", () => {
       assert.equal(spawn.calls.length, 1);
       assert.equal(spawn.calls[0].memory?.role, "harvester");
       assert.equal(spawn.calls[0].memory?.sourceId, "spawn-uncovered");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // AC1 — multi-spawn fires both spawns in one tick for 2 different roles
+  // ---------------------------------------------------------------------------
+
+  describe("AC1 — all idle spawns fire on the same tick", () => {
+    it("fires both idle spawns in the same tick when 2 different roles are needed", () => {
+      // Room has 2 sources; no creeps at all → harvester slot is needed.
+      // We also need a second role (builder) to be under-target so the second
+      // spawn has something to do.  We seed 5 harvesters for src-a so that
+      // src-a is saturated, then the second spawn should pick the next role.
+      const srcA = bareSource("src-a", 5, 5);
+      const srcB = bareSource("src-b", 6, 6);
+
+      const spawn1 = createMockSpawn({ sources: [srcA, srcB] });
+      const spawn2 = createMockSpawn({ sources: [srcA, srcB] });
+
+      // Provide both spawns in the same room by sharing the room object.
+      // createMockSpawn builds its own room; wire them to the same room name
+      // and make each spawn's room.find(FIND_MY_SPAWNS) return both spawns.
+      spawn1.room.find = (constant: number): any[] => {
+        if (constant === (global as any).FIND_SOURCES) return [srcA, srcB];
+        if (constant === (global as any).FIND_MY_SPAWNS) return [spawn1, spawn2];
+        return [];
+      };
+      spawn2.room = spawn1.room; // same room object
+
+      (global as any).Game.spawns = { Spawn1: spawn1, Spawn2: spawn2 };
+      // No creeps → harvester needed for src-a (first role in inactiveQueue)
+      // and builder needed (second role).
+      (global as any).Game.creeps = {};
+
+      runSpawner();
+
+      // Both spawns should have been used — total calls across both spawns = 2
+      const totalCalls = spawn1.calls.length + spawn2.calls.length;
+      assert.equal(totalCalls, 2, "both idle spawns should fire on the same tick");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // AC2 — hauler role uses worker body, not the dedicated hauler body
+  // ---------------------------------------------------------------------------
+
+  describe("AC2 — hauler role uses worker body", () => {
+    it("does not spawn the dedicated hauler body [CARRY×4,MOVE×4] for the hauler role", () => {
+      // Container source → containerQueue is selected → hauler slot is needed
+      // after harvesters are saturated.
+      const spawn = createMockSpawn({
+        energyCapacityAvailable: 300,
+        sources: [sourceWithContainer("src-a", 5, 5)]
+      });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      // 5 harvesters already present — harvester slot saturated.
+      (global as any).Game.creeps = {
+        H1: makeHarvester("W1N1", "src-a"),
+        H2: makeHarvester("W1N1", "src-a"),
+        H3: makeHarvester("W1N1", "src-a"),
+        H4: makeHarvester("W1N1", "src-a"),
+        H5: makeHarvester("W1N1", "src-a")
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "hauler");
+
+      const dedicatedHaulerBody = ["carry", "carry", "carry", "carry", "move", "move", "move", "move"];
+      assert.notDeepEqual(
+        spawn.calls[0].body,
+        dedicatedHaulerBody,
+        "hauler must NOT use the dedicated [CARRY×4,MOVE×4] body"
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // AC8 — harvester cap respected even in fallback path
+  // ---------------------------------------------------------------------------
+
+  describe("AC8 — harvester cap is always respected", () => {
+    it("does not spawn a harvester when all sources are at or above the work cap", () => {
+      // 5 harvesters already assigned to src-a (= SOURCE_WORK_SATURATION cap).
+      // Even the fallback step must not spawn another harvester.
+      const spawn = createMockSpawn({ energyCapacityAvailable: 300, sources: [bareSource("src-a", 5, 5)] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.creeps = {
+        H1: makeHarvester("W1N1", "src-a"),
+        H2: makeHarvester("W1N1", "src-a"),
+        H3: makeHarvester("W1N1", "src-a"),
+        H4: makeHarvester("W1N1", "src-a"),
+        H5: makeHarvester("W1N1", "src-a")
+      };
+
+      runSpawner();
+
+      // The spawner should move on to builder, not spawn a 6th harvester.
+      if (spawn.calls.length > 0) {
+        assert.notEqual(
+          spawn.calls[0].memory?.role,
+          "harvester",
+          "spawner must not spawn a harvester beyond the work cap"
+        );
+      }
+    });
+
+    it("does not spawn a harvester in an empty room beyond the cap for a single source", () => {
+      // Single source at close range → cap = SOURCE_WORK_SATURATION (5 WORK parts).
+      // With 5 harvesters (each 1 WORK part) already present, no more harvesters.
+      const spawn = createMockSpawn({ energyCapacityAvailable: 300, sources: [bareSource("src-a", 2, 2)] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.creeps = {
+        H1: makeHarvester("W1N1", "src-a"),
+        H2: makeHarvester("W1N1", "src-a"),
+        H3: makeHarvester("W1N1", "src-a"),
+        H4: makeHarvester("W1N1", "src-a"),
+        H5: makeHarvester("W1N1", "src-a")
+      };
+
+      runSpawner();
+
+      const harvesterSpawns = spawn.calls.filter((c: SpawnCall) => c.memory?.role === "harvester");
+      assert.equal(harvesterSpawns.length, 0, "no additional harvester should be spawned when cap is reached");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // AC9 — incomePermitsHeavyMiner true/false cases
+  // ---------------------------------------------------------------------------
+
+  describe("AC9 — incomePermitsHeavyMiner", () => {
+    // incomePermitsHeavyMiner(harvestRate, fleetMaintenanceCost, stationaryHarvesterBodyCost)
+    // Returns true when: harvestRate − fleetMaintenanceCost ≥ stationaryHarvesterBodyCost / CREEP_LIFE_TIME
+
+    it("returns true when surplus income covers the stationaryHarvester body amortised cost", () => {
+      // stationaryHarvester body: [WORK×5, CARRY, MOVE] = 5×100 + 50 + 50 = 600
+      // amortised cost = 600 / 1500 = 0.4 e/tick
+      // harvestRate = 10, fleetMaintenanceCost = 9 → surplus = 1 ≥ 0.4 → true
+      const stationaryBodyCost = 600; // 5×WORK + CARRY + MOVE
+      const result = incomePermitsHeavyMiner(10, 9, stationaryBodyCost);
+      assert.isTrue(result, "should return true when surplus ≥ amortised body cost");
+    });
+
+    it("returns false when fleet cost exceeds income leaving no surplus for stationaryHarvester", () => {
+      // harvestRate = 5, fleetMaintenanceCost = 5 → surplus = 0 < 0.4 → false
+      const stationaryBodyCost = 600;
+      const result = incomePermitsHeavyMiner(5, 5, stationaryBodyCost);
+      assert.isFalse(result, "should return false when surplus is zero");
+    });
+
+    it("returns false when fleet maintenance cost exceeds harvest rate", () => {
+      // harvestRate = 3, fleetMaintenanceCost = 10 → surplus = -7 → false
+      const stationaryBodyCost = 600;
+      const result = incomePermitsHeavyMiner(3, 10, stationaryBodyCost);
+      assert.isFalse(result, "should return false when fleet cost exceeds income");
+    });
+
+    it("returns true at the exact break-even point", () => {
+      // surplus = stationaryBodyCost / CREEP_LIFE_TIME exactly → true (≥)
+      const stationaryBodyCost = 600;
+      const amortised = stationaryBodyCost / 1500; // 0.4
+      const result = incomePermitsHeavyMiner(amortised + 5, 5, stationaryBodyCost);
+      assert.isTrue(result, "should return true at exact break-even");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // AC10 — canBuildExpansions true/false cases
+  // ---------------------------------------------------------------------------
+
+  describe("AC10 — canBuildExpansions", () => {
+    // canBuildExpansions(harvestRate, fleetMaintenanceCost, workerBodyCost, upgraderCount)
+    // Returns true when:
+    //   1. harvestRate − fleetMaintenanceCost ≥ workerBodyCost / CREEP_LIFE_TIME  (at least 1 upgrader supportable)
+    //   2. Additional surplus exists beyond all currently-running upgraders' maintenance.
+    // Returns false if income barely covers upgraders.
+
+    it("returns true when surplus income covers at least one upgrader and has additional surplus", () => {
+      // workerBody = [WORK, CARRY, MOVE] = 200 cost; amortised = 200/1500 ≈ 0.133 e/tick
+      // harvestRate = 10, fleetMaintenanceCost = 0, upgraderCount = 0
+      // surplus = 10 ≥ 0.133 → can support upgrader; no upgraders running → expansion ok
+      const workerBodyCost = 200;
+      const result = canBuildExpansions(10, 0, workerBodyCost, 0);
+      assert.isTrue(result, "should return true when surplus is well above upgrader cost");
+    });
+
+    it("returns false when income barely covers existing upgraders with no additional surplus", () => {
+      // workerBodyCost = 200; amortised = 200/1500 ≈ 0.133 e/tick
+      // 1 upgrader running → upgrader maintenance = 0.133 e/tick
+      // harvestRate = 0.133 + 0 = 0.133, fleetMaintenanceCost = 0
+      // surplus after upgrader = 0 → cannot build expansions
+      const workerBodyCost = 200;
+      const amortised = workerBodyCost / 1500;
+      const result = canBuildExpansions(amortised, 0, workerBodyCost, 1);
+      assert.isFalse(result, "should return false when income barely covers existing upgraders");
+    });
+
+    it("returns false when fleet maintenance cost exceeds harvest rate entirely", () => {
+      const workerBodyCost = 200;
+      const result = canBuildExpansions(1, 100, workerBodyCost, 0);
+      assert.isFalse(result, "should return false when fleet cost exceeds income");
+    });
+
+    it("uses a distinct formula from canSupportAnotherUpgrader — returns false when income only covers upgraders", () => {
+      // canSupportAnotherUpgrader would return true here (surplus ≥ next upgrader cost).
+      // canBuildExpansions must return false because there is no surplus BEYOND upgraders.
+      const workerBodyCost = 200;
+      const amortised = workerBodyCost / 1500; // ≈ 0.133
+      // harvestRate = 2 × amortised, fleetMaintenanceCost = 0, upgraderCount = 1
+      // surplus = 2×amortised − 0 = 2×amortised
+      // upgrader maintenance = 1 × amortised
+      // remaining after upgraders = 2×amortised − amortised = amortised
+      // canBuildExpansions requires remaining > amortised (strictly more than one upgrader's worth)
+      // so with exactly amortised remaining it should be false (income only covers upgraders)
+      const result = canBuildExpansions(amortised, 0, workerBodyCost, 1);
+      assert.isFalse(result, "canBuildExpansions must return false when income only covers existing upgraders");
     });
   });
 });

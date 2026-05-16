@@ -15,6 +15,7 @@ export const evaluateTask = (creep: Creep): TaskType => {
   const creepHasEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
 
   if (role === "stationaryHarvester") return "harvestAndDeposit";
+  if (role === "miner") return "harvestAndDeposit";
 
   if (role === "hauler") {
     if (creepHasEnergy && canDeposit) return "deposit";

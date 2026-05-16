@@ -1,6 +1,7 @@
 import { ErrorMapper } from "utils/ErrorMapper";
 import { evaluateTask } from "tasks/evaluator";
 import { runTask } from "tasks/runner";
+import { rebalanceRoles } from "roleManager";
 import { runSpawner } from "spawner";
 import { updateStats } from "utils/stats";
 
@@ -17,6 +18,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
   }
 
   updateStats();
+  rebalanceRoles();
   runSpawner();
 
   for (const creepName in Game.creeps) {

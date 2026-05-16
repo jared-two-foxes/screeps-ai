@@ -15,7 +15,7 @@ declare global {
   }
 
   interface CreepMemory {
-    role: "harvester" | "upgrader" | "stationaryHarvester" | "hauler" | "builder";
+    role: "harvester" | "upgrader" | "stationaryHarvester" | "hauler" | "builder" | "miner";
     room: string;
     task?: TaskType;
     sourceId?: Id<Source>;

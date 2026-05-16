@@ -381,6 +381,58 @@ describe("evaluateTask", () => {
   });
 
   // -------------------------------------------------------------------------
+  // AC11 — miner role routes to harvestAndDeposit
+  // -------------------------------------------------------------------------
+
+  describe("AC11 — miner role routing", () => {
+    it("returns 'harvestAndDeposit' immediately for a creep with role 'miner'", () => {
+      // miner is a source-pinned stationary harvester that deposits into a container;
+      // it should always receive the harvestAndDeposit task regardless of energy state.
+      const creep = makeCreep({
+        role: "miner",
+        energyCarried: 0,
+        energyFree: 300,
+        spawnEnergy: 300,
+        spawnCapacity: 300,
+        spawnFree: 0,
+        activeSources: 0
+      });
+
+      assert.equal(evaluateTask(creep), "harvestAndDeposit");
+    });
+
+    it("returns 'harvestAndDeposit' for miner even when spawn is critical", () => {
+      // Unlike a regular harvester, a miner must not be diverted to deposit
+      // directly into the spawn — it always uses harvestAndDeposit.
+      const creep = makeCreep({
+        role: "miner",
+        energyCarried: 50,
+        energyFree: 50,
+        spawnEnergy: 60,   // critical: 60/300 = 20% < 30%
+        spawnCapacity: 300,
+        spawnFree: 240,
+        activeSources: 1
+      });
+
+      assert.equal(evaluateTask(creep), "harvestAndDeposit");
+    });
+
+    it("returns 'harvestAndDeposit' for miner when creep is full", () => {
+      const creep = makeCreep({
+        role: "miner",
+        energyCarried: 300,
+        energyFree: 0,
+        spawnEnergy: 150,
+        spawnCapacity: 300,
+        spawnFree: 150,
+        activeSources: 1
+      });
+
+      assert.equal(evaluateTask(creep), "harvestAndDeposit");
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Container-harvester routing
   // -------------------------------------------------------------------------
 
