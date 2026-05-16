@@ -8,6 +8,7 @@ import { Game, Memory } from "./mock";
 const makeCreep = (opts: {
   role?: string;
   sourceId?: string;
+  room?: string;
   energyCarried?: number;
   energyFree?: number;
   spawnEnergy?: number;
@@ -21,6 +22,7 @@ const makeCreep = (opts: {
   const {
     role,
     sourceId,
+    room,
     energyCarried = 0,
     energyFree = 300,
     spawnEnergy = 0,
@@ -50,6 +52,7 @@ const makeCreep = (opts: {
   const memory: Record<string, unknown> = {};
   if (role != null) memory.role = role;
   if (sourceId != null) memory.sourceId = sourceId;
+  if (room != null) memory.room = room;
 
   return {
     memory,
@@ -407,10 +410,15 @@ describe("evaluateTask", () => {
 
     it("returns 'harvestAndDeposit' when pinned source has an adjacent container", () => {
       const srcId = "src-container";
+      const containerSrc = makeContainerSource(srcId);
       (global as any).Game.getObjectById = (id: string): object | null =>
-        id === srcId ? makeContainerSource(srcId) : null;
+        id === srcId ? containerSrc : null;
+      // 1 container source in the room, 1 hauler → 1 >= 1 → goes stationary
+      (global as any).Game.creeps = {
+        Hauler1: { memory: { room: "W1N1", role: "hauler" } }
+      };
 
-      const creep = makeCreep({ role: "harvester", sourceId: srcId });
+      const creep = makeCreep({ role: "harvester", sourceId: srcId, room: "W1N1", allSources: [containerSrc] });
       assert.equal(evaluateTask(creep), "harvestAndDeposit");
     });
 
@@ -420,14 +428,33 @@ describe("evaluateTask", () => {
         id === srcId ? makeBarePinnedSource(srcId) : null;
 
       // Creep is empty, active source available → should harvest
-      const creep = makeCreep({ role: "harvester", sourceId: srcId, activeSources: 1 });
+      const creep = makeCreep({ role: "harvester", sourceId: srcId, room: "W1N1", activeSources: 1 });
       assert.equal(evaluateTask(creep), "harvest");
     });
 
     it("falls through to generic logic when getObjectById returns null", () => {
       (global as any).Game.getObjectById = (_id: string): null => null;
 
-      const creep = makeCreep({ role: "harvester", sourceId: "missing-source", activeSources: 1 });
+      const creep = makeCreep({ role: "harvester", sourceId: "missing-source", room: "W1N1", activeSources: 1 });
+      assert.equal(evaluateTask(creep), "harvest");
+    });
+
+    it("falls through to generic logic when hauler count is below container source count", () => {
+      const srcId = "src-container";
+      const containerSrc = makeContainerSource(srcId);
+      (global as any).Game.getObjectById = (id: string): object | null =>
+        id === srcId ? containerSrc : null;
+      // 1 container source, 0 haulers → 0 >= 1 fails → stays mobile
+      (global as any).Game.creeps = {};
+
+      // Creep is empty, active source available → should harvest (mobile)
+      const creep = makeCreep({
+        role: "harvester",
+        sourceId: srcId,
+        room: "W1N1",
+        allSources: [containerSrc],
+        activeSources: 1
+      });
       assert.equal(evaluateTask(creep), "harvest");
     });
 
@@ -440,6 +467,7 @@ describe("evaluateTask", () => {
       const creep = makeCreep({
         role: "harvester",
         sourceId: srcId,
+        room: "W1N1",
         energyCarried: 10,
         spawnEnergy: 60,
         spawnCapacity: 300,

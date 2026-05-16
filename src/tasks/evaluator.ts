@@ -53,13 +53,27 @@ export const evaluateTask = (creep: Creep): TaskType => {
   // into the container and let haulers carry it to spawn/storage.  The
   // spawn-critical check above already handled the case where the spawn needs
   // a top-up right now.
+  // Guard: only go stationary when there is at least one hauler per container
+  // source — otherwise harvesters stay mobile and deliver directly to spawn
+  // until the hauler supply is established.
   if (role === "harvester" && creep.memory.sourceId != null) {
     const pinnedSource = Game.getObjectById<Source>(creep.memory.sourceId);
     if (pinnedSource != null) {
       const hasAdjacentContainer = pinnedSource.pos
         .findInRange(FIND_STRUCTURES, 1)
         .some((s: Structure) => s.structureType === STRUCTURE_CONTAINER);
-      if (hasAdjacentContainer) return "harvestAndDeposit";
+      if (hasAdjacentContainer) {
+        const roomName = creep.memory.room;
+        const haulerCount = Object.values(Game.creeps).filter(
+          (c: Creep) => c.memory.room === roomName && c.memory.role === "hauler"
+        ).length;
+        const containerSourceCount = creep.room.find(FIND_SOURCES).filter(source =>
+          source.pos
+            .findInRange(FIND_STRUCTURES, 1)
+            .some((s: Structure) => s.structureType === STRUCTURE_CONTAINER)
+        ).length;
+        if (haulerCount >= containerSourceCount) return "harvestAndDeposit";
+      }
     }
   }
 
