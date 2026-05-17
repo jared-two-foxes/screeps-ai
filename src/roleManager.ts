@@ -7,6 +7,42 @@ export const rebalanceRoles = (): void => {
     if (seenRooms.has(room.name)) continue;
     seenRooms.add(room.name);
 
+    // --- Harvester wipeout guard ---
+    // If no income-generating creep exists in the room but other creeps do,
+    // convert the least-critical one to harvester so the room can recover.
+    const harvestRoles = new Set(["harvester", "miner", "stationaryHarvester"]);
+    const wipeoutOrder: CreepMemory["role"][] = ["builder", "upgrader", "hauler"];
+    let hasHarvester = false;
+    let wipeoutCandidate: Creep | null = null;
+
+    for (const creepName in Game.creeps) {
+      const creep = Game.creeps[creepName];
+      if (creep.memory.room !== room.name) continue;
+      if (harvestRoles.has(creep.memory.role)) {
+        hasHarvester = true;
+        break;
+      }
+    }
+
+    if (!hasHarvester) {
+      outerWipeout:
+      for (const wipeRole of wipeoutOrder) {
+        for (const creepName in Game.creeps) {
+          const creep = Game.creeps[creepName];
+          if (creep.memory.room !== room.name) continue;
+          if (creep.memory.role !== wipeRole) continue;
+          wipeoutCandidate = creep;
+          break outerWipeout;
+        }
+      }
+
+      if (wipeoutCandidate != null) {
+        wipeoutCandidate.memory.role = "harvester";
+        wipeoutCandidate.memory.task = undefined;
+        wipeoutCandidate.memory.sourceId = undefined;
+      }
+    }
+
     // --- Identify sources ---
     const sources: Source[] = room.find(FIND_SOURCES);
 

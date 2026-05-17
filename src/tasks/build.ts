@@ -152,7 +152,7 @@ export const runBuildTask = (creep: Creep): boolean => {
       return false;
     }
 
-    const source = creep.pos.findClosestByRange(FIND_SOURCES);
+    const source = creep.pos.findClosestByRange(FIND_SOURCES_ACTIVE);
     if (source != null) {
       const harvestResult = creep.harvest(source);
       if (harvestResult === ERR_NOT_IN_RANGE) {

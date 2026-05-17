@@ -67,6 +67,7 @@ const createMockSpawn = (options: MockSpawnOptions = {}): any => {
       energyCapacityAvailable: options.energyCapacityAvailable ?? 300,
       energyAvailable: options.energyCapacityAvailable ?? 300,
       controller: { pos: controllerPos },
+      getTerrain: (): any => ({ get: (): number => 0 }),
       find: (constant: number): any[] => {
         if (constant === (global as any).FIND_SOURCES) return sources;
         if (constant === (global as any).FIND_MY_SPAWNS) return options.mySpawns ?? [spawn];
@@ -101,6 +102,7 @@ describe("spawner (Track A scaffold)", () => {
     (global as any).MOVE = "move";
     (global as any).BODYPART_COST = { work: 100, carry: 50, move: 50 };
     (global as any).CREEP_LIFE_TIME = 1500;
+    (global as any).TERRAIN_MASK_WALL = 1;
     (global as any).Game.time = 1000;
     (global as any).PathFinder = {
       search: () => ({ path: [], incomplete: false })
@@ -452,6 +454,11 @@ describe("spawner (Track A scaffold)", () => {
         H3: makeHarvester("W1N1", "a-spawn-src"),
         H4: makeHarvester("W1N1", "a-spawn-src"),
         H5: makeHarvester("W1N1", "a-spawn-src"),
+        HC1: makeHarvester("W1N1", "b-ctrl-src"),
+        HC2: makeHarvester("W1N1", "b-ctrl-src"),
+        HC3: makeHarvester("W1N1", "b-ctrl-src"),
+        HC4: makeHarvester("W1N1", "b-ctrl-src"),
+        HC5: makeHarvester("W1N1", "b-ctrl-src"),
         Builder1: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] }
       };
 
@@ -473,6 +480,11 @@ describe("spawner (Track A scaffold)", () => {
         H3: makeHarvester("W1N1", "a-spawn-src"),
         H4: makeHarvester("W1N1", "a-spawn-src"),
         H5: makeHarvester("W1N1", "a-spawn-src"),
+        HC1: makeHarvester("W1N1", "b-ctrl-src"),
+        HC2: makeHarvester("W1N1", "b-ctrl-src"),
+        HC3: makeHarvester("W1N1", "b-ctrl-src"),
+        HC4: makeHarvester("W1N1", "b-ctrl-src"),
+        HC5: makeHarvester("W1N1", "b-ctrl-src"),
         Builder1: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
         Upgrader1: { memory: { role: "upgrader", room: "W1N1", sourceId: "b-ctrl-src" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] }
       };
@@ -619,11 +631,11 @@ describe("spawner (Track A scaffold)", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // AC2 — hauler role uses worker body, not the dedicated hauler body
+  // AC2 — hauler role uses the dedicated hauler body
   // ---------------------------------------------------------------------------
 
-  describe("AC2 — hauler role uses worker body", () => {
-    it("does not spawn the dedicated hauler body [CARRY×4,MOVE×4] for the hauler role", () => {
+  describe("AC2 — hauler role uses dedicated hauler body", () => {
+    it("spawns the dedicated hauler body [CARRY×4,MOVE×4] for the hauler role", () => {
       // Container source → containerQueue is selected → hauler slot is needed
       // after harvesters are saturated.
       const spawn = createMockSpawn({
@@ -646,10 +658,10 @@ describe("spawner (Track A scaffold)", () => {
       assert.equal(spawn.calls[0].memory?.role, "hauler");
 
       const dedicatedHaulerBody = ["carry", "carry", "carry", "carry", "move", "move", "move", "move"];
-      assert.notDeepEqual(
+      assert.deepEqual(
         spawn.calls[0].body,
         dedicatedHaulerBody,
-        "hauler must NOT use the dedicated [CARRY×4,MOVE×4] body"
+        "hauler must use the dedicated [CARRY×4,MOVE×4] body"
       );
     });
   });
@@ -796,4 +808,110 @@ describe("spawner (Track A scaffold)", () => {
       assert.isFalse(result, "canBuildExpansions must return false when income only covers existing upgraders");
     });
   });
-});
+
+  // ─── Issue-1 regression ───────────────────────────────────────────────────
+  // Previously harvesters were restricted to spawnSourceIds, so the
+  // controller-proximate source could never be harvested by an inactive-queue
+  // harvester. The fix opens all sources to all harvester roles.
+  describe("Issue 1 regression — harvesters target all sources equally", () => {
+    it("assigns a new harvester to the controller-proximate source when spawn-proximate source is WORK-saturated", () => {
+      const srcA = bareSource("src-spawn", 2, 2);
+      const srcB = bareSource("src-ctrl", 18, 18);
+
+      // PathFinder returns 0-step path → cycleTime = 25, cap = 5 WORK for each source.
+      (global as any).PathFinder = { search: (): any => ({ path: [], incomplete: false }) };
+
+      // src-spawn already has 5 WORK parts assigned → WORK-saturated.
+      (global as any).Game.creeps = {
+        H1: { memory: { role: "harvester", room: "W1N1", sourceId: "src-spawn" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
+        H2: { memory: { role: "harvester", room: "W1N1", sourceId: "src-spawn" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
+        H3: { memory: { role: "harvester", room: "W1N1", sourceId: "src-spawn" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
+        H4: { memory: { role: "harvester", room: "W1N1", sourceId: "src-spawn" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
+        H5: { memory: { role: "harvester", room: "W1N1", sourceId: "src-spawn" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] }
+      };
+
+      const spawn = createMockSpawn({ sources: [srcA, srcB], controllerPos: makePos(20, 20) });
+      (global as any).Game.spawns = { Spawn1: spawn };
+
+      runSpawner();
+
+      const harvesterCalls: SpawnCall[] = spawn.calls.filter((c: SpawnCall) => c.memory?.role === "harvester");
+      assert.isAtLeast(harvesterCalls.length, 1, "should have spawned at least one harvester");
+      const allGoToCtrl = harvesterCalls.every((c: SpawnCall) => c.memory?.sourceId === "src-ctrl");
+      assert.isTrue(allGoToCtrl, "harvester(s) should be assigned to src-ctrl, the unsaturated source");
+    });
+  });
+
+  // ─── Issue-2 regression ───────────────────────────────────────────────────
+  // Previously saturation used only WORK-part math, ignoring how many creeps
+  // could physically stand around a source. The fix counts walkable adjacent
+  // tiles and caps assignment at that number.
+  describe("Issue 2 regression — creep count capped by walkable tiles", () => {
+    it("does not assign more harvesters to a source than its walkable-tile count", () => {
+      const srcA = bareSource("src-a", 10, 10);
+      const srcB = bareSource("src-b", 5, 5);
+
+      // 6 of 8 neighbours of src-a are walls → tile cap = 2.
+      const wallsAroundA = new Set(["9,9", "10,9", "11,9", "9,11", "10,11", "11,11"]);
+
+      // src-a already has 2 harvesters → physical cap reached.
+      (global as any).Game.creeps = {
+        H1: { memory: { role: "harvester", room: "W1N1", sourceId: "src-a" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
+        H2: { memory: { role: "harvester", room: "W1N1", sourceId: "src-a" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] }
+      };
+
+      const spawn = createMockSpawn({ sources: [srcA, srcB] });
+      spawn.room.getTerrain = (): any => ({
+        get: (x: number, y: number): number =>
+          wallsAroundA.has(`${x},${y}`) ? (global as any).TERRAIN_MASK_WALL : 0
+      });
+      (global as any).Game.spawns = { Spawn1: spawn };
+
+      runSpawner();
+
+      const harvesterCalls: SpawnCall[] = spawn.calls.filter((c: SpawnCall) => c.memory?.role === "harvester");
+      assert.isAtLeast(harvesterCalls.length, 1, "should spawn a harvester for the open source");
+      for (const call of harvesterCalls) {
+        assert.notStrictEqual(
+          call.memory?.sourceId,
+          "src-a",
+          "must not assign another harvester to src-a whose tile cap (2) is already reached"
+        );
+      }
+    });
+  });
+
+  // ─── countWalkableAdjacentTiles unit tests ────────────────────────────────
+  describe("countWalkableAdjacentTiles", () => {
+    it("counts only non-wall tiles in the 3×3 neighbourhood, excluding the source centre", () => {
+      const countFn = (spawnerModule as any).countWalkableAdjacentTiles;
+      assert.isFunction(countFn, "countWalkableAdjacentTiles should be exported");
+
+      // 6 of 8 neighbours of (10,10) are walls; (9,10) and (11,10) remain passable.
+      const walls = new Set(["9,9", "10,9", "11,9", "9,11", "10,11", "11,11"]);
+      const source = { id: "s1", pos: { x: 10, y: 10 } };
+      const room = {
+        getTerrain: () => ({
+          get: (x: number, y: number): number =>
+            walls.has(`${x},${y}`) ? (global as any).TERRAIN_MASK_WALL : 0
+        })
+      };
+
+      assert.equal((countFn as any)(room, source), 2, "should count exactly 2 walkable tiles");
+    });
+
+    it("returns 8 when all adjacent tiles are walkable", () => {
+      const countFn = (spawnerModule as any).countWalkableAdjacentTiles;
+      const source = { id: "s1", pos: { x: 10, y: 10 } };
+      const room = { getTerrain: () => ({ get: (): number => 0 }) };
+      assert.equal((countFn as any)(room, source), 8);
+    });
+
+    it("returns 0 when all adjacent tiles are walls", () => {
+      const countFn = (spawnerModule as any).countWalkableAdjacentTiles;
+      const source = { id: "s1", pos: { x: 10, y: 10 } };
+      const room = { getTerrain: () => ({ get: (): number => (global as any).TERRAIN_MASK_WALL }) };
+      assert.equal((countFn as any)(room, source), 0);
+    });
+  });
+});  // end describe("spawner (Track A scaffold)")

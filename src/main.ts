@@ -1,14 +1,21 @@
 import { ErrorMapper } from "utils/ErrorMapper";
+import { updateStats } from "utils/stats";
 import { evaluateTask } from "tasks/evaluator";
 import { runTask } from "tasks/runner";
 import { rebalanceRoles } from "roleManager";
-import { runSpawner } from "spawner";
-import { updateStats } from "utils/stats";
+import { clearDistanceCache, runSpawner } from "spawner";
+
+const DISTANCE_CACHE_CLEAR_INTERVAL = 1000;
 
 // When compiling TS to JS and bundling with rollup, the line numbers and file names in error messages change
 // This utility uses source maps to get the line numbers and file names of the original, TS source code
 export const loop = ErrorMapper.wrapLoop(() => {
   console.log(`Current game tick is ${Game.time}`);
+
+  // Periodically clear the distance cache to prevent unbounded memory growth.
+  if (Game.time % DISTANCE_CACHE_CLEAR_INTERVAL === 0) {
+    clearDistanceCache();
+  }
 
   // Automatically delete memory of missing creeps
   for (const name in Memory.creeps) {

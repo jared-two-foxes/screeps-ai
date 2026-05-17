@@ -10,6 +10,7 @@ describe("runBuildTask", () => {
     global.Memory = _.clone(Memory);
 
     (global as any).FIND_SOURCES = 1;
+    (global as any).FIND_SOURCES_ACTIVE = 7;
     (global as any).FIND_STRUCTURES = 2;
     (global as any).FIND_CONSTRUCTION_SITES = 3;
     (global as any).STRUCTURE_CONTAINER = "container";
@@ -334,7 +335,7 @@ describe("runBuildTask", () => {
       store: { getUsedCapacity: (): number => 0 },
       pos: {
         findClosestByRange: (findConstant: number): object | null =>
-          findConstant === (global as any).FIND_SOURCES ? source : null
+          findConstant === (global as any).FIND_SOURCES_ACTIVE ? source : null
       },
       build: (): number => 0,
       moveTo: (): number => 0,
@@ -349,6 +350,43 @@ describe("runBuildTask", () => {
 
     assert.isFalse(done);
     assert.strictEqual(harvestTarget, source);
+  });
+
+  it("does not harvest and returns false when no active source exists", () => {
+    const buildSite = { id: "site-1", structureType: "road" };
+    let harvestCalls = 0;
+
+    const room = {
+      storage: undefined,
+      find: (findConstant: number): object[] => {
+        if (findConstant === (global as any).FIND_SOURCES) return [];
+        if (findConstant === (global as any).FIND_CONSTRUCTION_SITES) return [buildSite];
+        return [];
+      },
+      createConstructionSite: (): number => 0,
+      getTerrain: () => ({ get: (): number => 0 }),
+      lookForAt: (): object[] => []
+    };
+
+    const creep = {
+      room,
+      store: { getUsedCapacity: (): number => 0 },
+      pos: {
+        findClosestByRange: (): null => null
+      },
+      build: (): number => 0,
+      moveTo: (): number => 0,
+      harvest: (): number => {
+        harvestCalls++;
+        return 0;
+      },
+      withdraw: (): number => 0
+    };
+
+    const done = runBuildTask(creep as any);
+
+    assert.isFalse(done);
+    assert.equal(harvestCalls, 0);
   });
 
   it("builds nearest construction site when creep has energy and moves on ERR_NOT_IN_RANGE", () => {

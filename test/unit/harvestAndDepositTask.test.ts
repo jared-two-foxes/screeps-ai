@@ -15,10 +15,10 @@ describe("runHarvestAndDepositTask", () => {
     (global as any).ERR_NOT_IN_RANGE = -9;
   });
 
-  it("always returns false and moves toward source when not adjacent", () => {
+  it("always returns false and moves toward source when not adjacent (no harvest)", () => {
     const source = { id: "source1", pos: { findInRange: (): [] => [] } };
     let moveTarget: object | null = null;
-    let harvestTarget: object | null = null;
+    let harvestCalls = 0;
 
     const creep = {
       store: { getFreeCapacity: (): number => 10 },
@@ -31,8 +31,8 @@ describe("runHarvestAndDepositTask", () => {
         moveTarget = target;
         return 0;
       },
-      harvest: (target: object): number => {
-        harvestTarget = target;
+      harvest: (): number => {
+        harvestCalls++;
         return 0;
       },
       transfer: (): number => 0,
@@ -43,7 +43,7 @@ describe("runHarvestAndDepositTask", () => {
 
     assert.isFalse(done);
     assert.strictEqual(moveTarget, source);
-    assert.strictEqual(harvestTarget, source);
+    assert.equal(harvestCalls, 0, "harvest should not be called when creep is out of range");
   });
 
   it("harvests source when not full", () => {

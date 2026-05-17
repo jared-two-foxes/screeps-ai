@@ -415,4 +415,53 @@ describe("rebalanceRoles", () => {
       );
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Harvester wipeout guard
+  // -------------------------------------------------------------------------
+
+  describe("harvester wipeout guard", () => {
+    it("converts a builder to harvester when no income-generating creep exists", () => {
+      const room = makeRoom("W1N1", [{ id: "src-a", hasContainer: false }]);
+      const spawn = makeSpawn("Spawn1", room);
+      (global as any).Game.spawns = { Spawn1: spawn };
+
+      const builder = makeCreep({ name: "Builder1", role: "builder", room: "W1N1" });
+      const upgrader = makeCreep({ name: "Upgrader1", role: "upgrader", room: "W1N1" });
+      (global as any).Game.creeps = { Builder1: builder, Upgrader1: upgrader };
+
+      rebalanceRoles();
+
+      assert.equal(builder.memory.role, "harvester", "builder should be converted to harvester on wipeout");
+      assert.isUndefined(builder.memory.sourceId);
+      assert.equal(upgrader.memory.role, "upgrader", "upgrader should not be touched when a builder can be converted");
+    });
+
+    it("converts an upgrader when no builder is available during wipeout", () => {
+      const room = makeRoom("W1N1", [{ id: "src-a", hasContainer: false }]);
+      const spawn = makeSpawn("Spawn1", room);
+      (global as any).Game.spawns = { Spawn1: spawn };
+
+      const upgrader = makeCreep({ name: "Upgrader1", role: "upgrader", room: "W1N1" });
+      (global as any).Game.creeps = { Upgrader1: upgrader };
+
+      rebalanceRoles();
+
+      assert.equal(upgrader.memory.role, "harvester", "upgrader should be converted to harvester when no builder exists");
+    });
+
+    it("does not convert any creep when at least one harvester is alive", () => {
+      const room = makeRoom("W1N1", [{ id: "src-a", hasContainer: false }]);
+      const spawn = makeSpawn("Spawn1", room);
+      (global as any).Game.spawns = { Spawn1: spawn };
+
+      const harvester = makeCreep({ name: "Harvester1", role: "harvester", room: "W1N1" });
+      const builder = makeCreep({ name: "Builder1", role: "builder", room: "W1N1" });
+      (global as any).Game.creeps = { Harvester1: harvester, Builder1: builder };
+
+      rebalanceRoles();
+
+      assert.equal(builder.memory.role, "builder", "builder should not be converted when a harvester is alive");
+    });
+  });
 });

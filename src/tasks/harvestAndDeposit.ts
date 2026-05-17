@@ -11,12 +11,13 @@ export const runHarvestAndDepositTask = (creep: Creep): boolean => {
 
   if (creep.store.getFreeCapacity() > 0) {
     if (creep.pos.getRangeTo(source) > 1) {
-      creep.moveTo(source);
+      creep.moveTo(source, { reusePath: 5 });
+      return false;
     }
 
     const harvestResult = creep.harvest(source);
     if (harvestResult === ERR_NOT_IN_RANGE) {
-      creep.moveTo(source);
+      creep.moveTo(source, { reusePath: 5 });
     }
 
     return false;

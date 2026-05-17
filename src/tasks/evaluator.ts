@@ -11,7 +11,13 @@ export const evaluateTask = (creep: Creep): TaskType => {
   const storage = creep.room.storage;
   const storageHasRoom = storage != null && (storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0) > 0;
 
-  const canDeposit = spawnHasRoom || storageHasRoom;
+  const extensionHasRoom = creep.room.find(FIND_MY_STRUCTURES, {
+    filter: (s: AnyOwnedStructure) =>
+      s.structureType === STRUCTURE_EXTENSION &&
+      s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+  }).length > 0;
+
+  const canDeposit = spawnHasRoom || storageHasRoom || extensionHasRoom;
   const creepHasEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
 
   if (role === "stationaryHarvester") return "harvestAndDeposit";

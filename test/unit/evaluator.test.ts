@@ -18,6 +18,7 @@ const makeCreep = (opts: {
   activeSources?: number;
   allSources?: object[];
   constructionSites?: object[];
+  extensions?: object[];
 }): any => {
   const {
     role,
@@ -31,7 +32,8 @@ const makeCreep = (opts: {
     storageFree = 0,
     activeSources = 0,
     allSources = [],
-    constructionSites = []
+    constructionSites = [],
+    extensions = []
   } = opts;
 
   const spawn =
@@ -64,6 +66,7 @@ const makeCreep = (opts: {
         if (findType === (global as any).FIND_SOURCES_ACTIVE) return sources;
         if (findType === (global as any).FIND_SOURCES) return allSources;
         if (findType === (global as any).FIND_CONSTRUCTION_SITES) return constructionSites;
+        if (findType === (global as any).FIND_MY_STRUCTURES) return extensions;
         return [];
       }
     }
@@ -81,8 +84,10 @@ describe("evaluateTask", () => {
     (global as any).FIND_SOURCES = 4;
     (global as any).FIND_CONSTRUCTION_SITES = 5;
     (global as any).FIND_STRUCTURES = 6;
+    (global as any).FIND_MY_STRUCTURES = 108;
     (global as any).RESOURCE_ENERGY = "energy";
     (global as any).STRUCTURE_CONTAINER = "container";
+    (global as any).STRUCTURE_EXTENSION = "extension";
   });
 
   // -------------------------------------------------------------------------
@@ -144,6 +149,19 @@ describe("evaluateTask", () => {
       storageFree: 0
     });
     assert.equal(evaluateTask(creep), "upgrade");
+  });
+
+  it("returns 'deposit' when spawn and storage are both full but extensions have room and creep is full", () => {
+    const creep = makeCreep({
+      energyCarried: 100,
+      energyFree: 0,
+      spawnEnergy: 300,
+      spawnCapacity: 300,
+      spawnFree: 0,
+      storageFree: 0,
+      extensions: [{ structureType: "extension", store: { getFreeCapacity: (): number => 50 } }]
+    });
+    assert.equal(evaluateTask(creep), "deposit");
   });
 
   // -------------------------------------------------------------------------

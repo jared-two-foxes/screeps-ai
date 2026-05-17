@@ -11,7 +11,9 @@ describe("main", () => {
     room: {
       controller: { id: "controller1" },
       storage: undefined,
-      find: (): object[] => [{}],
+      // Return [] for filter-based queries (e.g. FIND_MY_STRUCTURES extension check)
+      // so that extensionHasRoom stays false and upgraders are not mis-routed to deposit.
+      find: (_c: number, opts?: any): object[] => (opts != null ? [] : [{}]),
       ...(overrides.room ?? {})
     },
     store: {
