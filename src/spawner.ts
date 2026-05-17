@@ -409,6 +409,29 @@ export const canSupportAnotherUpgrader = (ctx: RoomContext, counts: Record<strin
   return harvestRate - maintenanceCostPerTick >= nextUpgraderCostPerTick;
 };
 
+/**
+ * Returns true when the room's harvest surplus (after fleet maintenance) can
+ * cover the amortised cost of one additional builder body.
+ *
+ * Intentionally does NOT require areSpawnSourcesSaturated — builders are
+ * useful earlier in a room's lifecycle than a second upgrader.
+ */
+export const canSupportAnotherBuilder = (ctx: RoomContext): boolean => {
+  const harvestRate = Object.values(ctx.assignedWorkBySource).reduce((sum, work) => sum + work, 0) * 2;
+
+  let fleetCost = 0;
+  for (const creepName in Game.creeps) {
+    const creep = Game.creeps[creepName];
+    if (creep.memory.room !== ctx.room.name) continue;
+    const body = creep.body.map((part: { type: BodyPartConstant }) => part.type);
+    fleetCost += calcBodyCost(body);
+  }
+
+  const maintenanceCostPerTick = fleetCost / CREEP_LIFE_TIME;
+  const nextBuilderCostPerTick = calcBodyCost(ctx.workerBody) / CREEP_LIFE_TIME;
+  return harvestRate - maintenanceCostPerTick >= nextBuilderCostPerTick;
+};
+
 // ---------------------------------------------------------------------------
 // Queues
 // ---------------------------------------------------------------------------
@@ -444,7 +467,7 @@ const activeQueue: SpawnQueueRole[] = [
     role: "builder",
     body: ctx => ctx.workerBody,
     namePrefix: "Builder",
-    targetCount: () => 1
+    targetCount: (ctx, counts) => canSupportAnotherBuilder(ctx) ? Math.min((counts.builder ?? 0) + 1, 2) : 1
   },
   {
     role: "upgrader",
@@ -474,7 +497,7 @@ const inactiveQueue: SpawnQueueRole[] = [
     role: "builder",
     body: ctx => ctx.workerBody,
     namePrefix: "Builder",
-    targetCount: () => 1
+    targetCount: (ctx, counts) => canSupportAnotherBuilder(ctx) ? Math.min((counts.builder ?? 0) + 1, 2) : 1
   },
   {
     role: "upgrader",
@@ -529,7 +552,7 @@ const containerQueue: SpawnQueueRole[] = [
     role: "builder",
     body: ctx => ctx.workerBody,
     namePrefix: "Builder",
-    targetCount: () => 1
+    targetCount: (ctx, counts) => canSupportAnotherBuilder(ctx) ? Math.min((counts.builder ?? 0) + 1, 2) : 1
   },
   {
     role: "upgrader",

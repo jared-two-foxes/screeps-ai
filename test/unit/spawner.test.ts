@@ -158,6 +158,7 @@ describe("spawner (Track A scaffold)", () => {
     it("exports upgrader gating helpers for direct formula tests", () => {
       assert.isFunction((spawnerModule as any).areSpawnSourcesSaturated);
       assert.isFunction((spawnerModule as any).canSupportAnotherUpgrader);
+      assert.isFunction((spawnerModule as any).canSupportAnotherBuilder);
     });
 
     it("reuses cached path distances across repeated classifications", () => {
@@ -291,7 +292,9 @@ describe("spawner (Track A scaffold)", () => {
         H4: makeHarvester("W1N1", "src-a"),
         H5: makeHarvester("W1N1", "src-a"),
         H6: makeHarvester("W1N1", "src-a"),
-        Builder1: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] }
+        // Two builders saturate the cap-of-2 so the spawner moves on to upgrader.
+        Builder1: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
+        Builder2: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] }
       };
 
       runSpawner();
@@ -459,7 +462,8 @@ describe("spawner (Track A scaffold)", () => {
         HC3: makeHarvester("W1N1", "b-ctrl-src"),
         HC4: makeHarvester("W1N1", "b-ctrl-src"),
         HC5: makeHarvester("W1N1", "b-ctrl-src"),
-        Builder1: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] }
+        Builder1: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
+        Builder2: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] }
       };
 
       runSpawner();
@@ -486,6 +490,7 @@ describe("spawner (Track A scaffold)", () => {
         HC4: makeHarvester("W1N1", "b-ctrl-src"),
         HC5: makeHarvester("W1N1", "b-ctrl-src"),
         Builder1: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
+        Builder2: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
         Upgrader1: { memory: { role: "upgrader", room: "W1N1", sourceId: "b-ctrl-src" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] }
       };
 
@@ -507,7 +512,9 @@ describe("spawner (Track A scaffold)", () => {
         H3: makeHarvester("W1N1", "src-a"),
         H4: makeHarvester("W1N1", "src-a"),
         H5: makeHarvester("W1N1", "src-a"),
+        // Two builders saturate the cap-of-2 so the spawner moves on to upgrader.
         Builder1: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
+        Builder2: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
         Upgrader1: { memory: { role: "upgrader", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] }
       };
 
@@ -541,6 +548,85 @@ describe("spawner (Track A scaffold)", () => {
       runSpawner();
 
       assert.equal(spawn.calls.length, 0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // builder growth gate — mirrors the upgrader growth gate pattern
+  // ---------------------------------------------------------------------------
+
+  describe("builder growth gate", () => {
+    it("canSupportAnotherBuilder true case spawns a 2nd builder when income surplus permits", () => {
+      // 5 harvesters fully saturate the source.  Fleet is light so harvest
+      // surplus comfortably covers an additional worker body.
+      const spawn = createMockSpawn({ sources: [bareSource("src-a", 5, 5)] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.creeps = {
+        H1: makeHarvester("W1N1", "src-a"),
+        H2: makeHarvester("W1N1", "src-a"),
+        H3: makeHarvester("W1N1", "src-a"),
+        H4: makeHarvester("W1N1", "src-a"),
+        H5: makeHarvester("W1N1", "src-a"),
+        Builder1: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
+        Upgrader1: { memory: { role: "upgrader", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] }
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "builder");
+    });
+
+    it("canSupportAnotherBuilder false case stays at 1 builder when fleet cost leaves no surplus", () => {
+      // Same costly fleet pattern used in the upgrader false case:
+      // 40 haulers with max-WORK bodies consume all harvest income.
+      const spawn = createMockSpawn({ sources: [bareSource("src-a", 5, 5)] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+
+      const expensiveBody = new Array(50).fill(0).map(() => ({ type: "work" }));
+      const costlyFleet: Record<string, any> = {};
+      for (let i = 0; i < 40; i++) {
+        costlyFleet[`Dummy_${i}`] = { memory: { role: "hauler", room: "W1N1" }, body: expensiveBody };
+      }
+
+      (global as any).Game.creeps = {
+        H1: makeHarvester("W1N1", "src-a"),
+        H2: makeHarvester("W1N1", "src-a"),
+        H3: makeHarvester("W1N1", "src-a"),
+        H4: makeHarvester("W1N1", "src-a"),
+        H5: makeHarvester("W1N1", "src-a"),
+        Builder1: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
+        Upgrader1: { memory: { role: "upgrader", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
+        ...costlyFleet
+      };
+
+      runSpawner();
+
+      assert.equal(spawn.calls.length, 0);
+    });
+
+    it("hard cap prevents a 3rd builder even when income is very high", () => {
+      // Two builders already present; even with ample surplus the spawner must
+      // not spawn a 3rd builder.
+      const spawn = createMockSpawn({ sources: [bareSource("src-a", 5, 5)] });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.creeps = {
+        H1: makeHarvester("W1N1", "src-a"),
+        H2: makeHarvester("W1N1", "src-a"),
+        H3: makeHarvester("W1N1", "src-a"),
+        H4: makeHarvester("W1N1", "src-a"),
+        H5: makeHarvester("W1N1", "src-a"),
+        Builder1: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
+        Builder2: { memory: { role: "builder", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] },
+        Upgrader1: { memory: { role: "upgrader", room: "W1N1" }, body: [{ type: "work" }, { type: "carry" }, { type: "move" }] }
+      };
+
+      runSpawner();
+
+      // The spawner may spawn an upgrader (surplus allows it) but must not spawn
+      // a 3rd builder.
+      const builderSpawns = spawn.calls.filter((c: any) => c.memory?.role === "builder");
+      assert.equal(builderSpawns.length, 0, "must not spawn a 3rd builder");
     });
   });
 
