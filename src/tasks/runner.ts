@@ -4,6 +4,7 @@ import { runForageTask } from "tasks/forage";
 import { runHarvestTask } from "tasks/harvest";
 import { runHarvestAndDepositTask } from "tasks/harvestAndDeposit";
 import { runUpgradeTask } from "tasks/upgrade";
+import { runUpgradeFromContainerTask } from "tasks/upgradeFromContainer";
 
 /**
  * Dispatches the creep to its current task runner.
@@ -24,6 +25,8 @@ export const runTask = (creep: Creep): boolean => {
       return runForageTask(creep);
     case "build":
       return runBuildTask(creep);
+    case "upgradeFromContainer":
+      return runUpgradeFromContainerTask(creep);
     default:
       return true; // missing/unknown task — force re-evaluation
   }

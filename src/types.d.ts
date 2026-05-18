@@ -1,11 +1,11 @@
 export {};
 
 declare global {
-  type TaskType = "harvest" | "deposit" | "upgrade" | "harvestAndDeposit" | "forage" | "build";
+  type TaskType = "harvest" | "deposit" | "upgrade" | "harvestAndDeposit" | "forage" | "build" | "upgradeFromContainer";
 
   interface RoomStats {
     totalCreeps: number;
-    byRole: { [role: string]: number };
+    byTask: { [task: string]: number };
   }
 
   interface Memory {
@@ -15,7 +15,7 @@ declare global {
   }
 
   interface CreepMemory {
-    role: "harvester" | "upgrader" | "stationaryHarvester" | "hauler" | "builder" | "miner";
+    role?: string;
     room: string;
     task?: TaskType;
     sourceId?: Id<Source>;

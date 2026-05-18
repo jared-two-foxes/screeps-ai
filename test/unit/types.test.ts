@@ -1,66 +1,34 @@
 import { assert } from "chai";
 
-// Type-level regression checks for Screeps memory typing.
-// These assertions intentionally rely on TypeScript compile-time behavior.
-const upgraderMemoryWithoutWorking: CreepMemory = {
-  role: "upgrader",
+// After U2 this must compile; before U2 it causes a TS error → tests in this file fail.
+// "upgradeFromContainer" is not in the current TaskType union → compile error.
+const validUpgradeFromContainerTask: TaskType = "upgradeFromContainer";
+
+// CreepMemory no longer has `role` — only room, task, sourceId remain.
+// Before U2, `role` is required → this line causes a compile error.
+const minimalCreepMemory: CreepMemory = {
   room: "W1N1"
 };
 
-const stationaryHarvesterMemory: CreepMemory = {
-  role: "stationaryHarvester",
+const creepMemoryWithTask: CreepMemory = {
   room: "W1N1",
-  task: "harvestAndDeposit"
+  task: "upgradeFromContainer"
 };
 
-const haulerMemory: CreepMemory = {
-  role: "hauler",
-  room: "W1N1",
-  task: "forage"
-};
-
-const builderMemory: CreepMemory = {
-  role: "builder",
-  room: "W1N1",
-  task: "build"
-};
-
-const validUpgraderRole: CreepMemory["role"] = "upgrader";
-const validStationaryHarvesterRole: CreepMemory["role"] = "stationaryHarvester";
-const validHaulerRole: CreepMemory["role"] = "hauler";
-const validBuilderRole: CreepMemory["role"] = "builder";
-
-const validHarvestAndDepositTask: TaskType = "harvestAndDeposit";
-const validForageTask: TaskType = "forage";
-const validBuildTask: TaskType = "build";
-
-// @ts-expect-error CreepMemory.role should reject unsupported roles once narrowed.
-const invalidRole: CreepMemory["role"] = "scout";
-
-// @ts-expect-error TaskType should reject unsupported tasks once narrowed.
+// @ts-expect-error TaskType should still reject unsupported tasks
 const invalidTask: TaskType = "repair";
 
 describe("types", () => {
-  it("accepts valid upgrader creep memory with only required fields", () => {
-    assert.equal(upgraderMemoryWithoutWorking.role, validUpgraderRole);
+  it("accepts minimal CreepMemory with only room field", () => {
+    assert.equal(minimalCreepMemory.room, "W1N1");
   });
 
-  it("accepts stationaryHarvester, hauler, and builder roles", () => {
-    assert.deepEqual(
-      [stationaryHarvesterMemory.role, haulerMemory.role, builderMemory.role],
-      [validStationaryHarvesterRole, validHaulerRole, validBuilderRole]
-    );
+  it("accepts upgradeFromContainer as a valid TaskType", () => {
+    assert.equal(validUpgradeFromContainerTask, "upgradeFromContainer");
   });
 
-  it("accepts harvestAndDeposit, forage, and build task types", () => {
-    assert.deepEqual(
-      [stationaryHarvesterMemory.task, haulerMemory.task, builderMemory.task],
-      [validHarvestAndDepositTask, validForageTask, validBuildTask]
-    );
-  });
-
-  it("keeps compile-time guard for invalid roles", () => {
-    assert.equal(typeof invalidRole, "string");
+  it("accepts CreepMemory with upgradeFromContainer task", () => {
+    assert.equal(creepMemoryWithTask.task, "upgradeFromContainer");
   });
 
   it("keeps compile-time guard for invalid tasks", () => {

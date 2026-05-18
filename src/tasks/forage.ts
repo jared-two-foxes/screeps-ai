@@ -5,12 +5,16 @@
 export const runForageTask = (creep: Creep): boolean => {
   if (creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) return true;
 
-  const structure = creep.pos.findClosestByRange(FIND_STRUCTURES);
+  const found = creep.pos.findClosestByRange(FIND_STRUCTURES, {
+    filter: (s: AnyStructure): boolean =>
+      s.structureType === STRUCTURE_CONTAINER &&
+      s.store.getUsedCapacity(RESOURCE_ENERGY) > 0
+  });
   const container =
-    structure != null &&
-    structure.structureType === STRUCTURE_CONTAINER &&
-    structure.store.getUsedCapacity(RESOURCE_ENERGY) > 0
-      ? structure
+    found != null &&
+    found.structureType === STRUCTURE_CONTAINER &&
+    found.store.getUsedCapacity(RESOURCE_ENERGY) > 0
+      ? found
       : null;
 
   if (container != null) {
@@ -22,9 +26,9 @@ export const runForageTask = (creep: Creep): boolean => {
     return false;
   }
 
-  const resource = creep.pos.findClosestByRange(FIND_DROPPED_RESOURCES);
-  const droppedResource =
-    resource != null && resource.resourceType === RESOURCE_ENERGY && resource.amount > 0 ? resource : null;
+  const droppedResource = creep.pos.findClosestByRange(FIND_DROPPED_RESOURCES, {
+    filter: (r: Resource): boolean => r.resourceType === RESOURCE_ENERGY && r.amount > 0
+  });
 
   if (droppedResource == null) return true;
 

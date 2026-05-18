@@ -1,36 +1,17 @@
 import { canBuildExpansions } from "spawner";
+import { computeFleetMaintenanceCost, computeRoomHarvestRate } from "utils/economy";
 
 const WORKER_BODY_COST = 200; // WORK(100) + CARRY(50) + MOVE(50)
-
-const computeRoomHarvestRate = (roomName: string): number => {
-  const harvestRoles = new Set(["harvester", "miner", "stationaryHarvester"]);
-  let total = 0;
-  for (const name in Game.creeps) {
-    const creep = Game.creeps[name];
-    if (creep.memory.room !== roomName) continue;
-    if (!harvestRoles.has(creep.memory.role)) continue;
-    total += creep.body.filter((p: { type: BodyPartConstant }) => p.type === WORK).length * 2;
-  }
-  return total;
-};
-
-const computeFleetMaintenanceCost = (roomName: string): number => {
-  let totalCost = 0;
-  for (const name in Game.creeps) {
-    const creep = Game.creeps[name];
-    if (creep.memory.room !== roomName) continue;
-    for (const part of creep.body as { type: BodyPartConstant }[]) {
-      totalCost += BODYPART_COST[part.type] ?? 0;
-    }
-  }
-  return totalCost / CREEP_LIFE_TIME;
-};
 
 const countUpgradersInRoom = (roomName: string): number => {
   let count = 0;
   for (const name in Game.creeps) {
     const creep = Game.creeps[name];
-    if (creep.memory.room === roomName && creep.memory.role === "upgrader") count++;
+    if (
+      creep.memory.room === roomName &&
+      (creep.memory.task === "upgrade" || creep.memory.task === "upgradeFromContainer")
+    )
+      count++;
   }
   return count;
 };
@@ -88,10 +69,19 @@ const hasAdjacentContainerCoverage = (source: Source): boolean => {
   return adjacentSites.some(site => site.structureType === STRUCTURE_CONTAINER);
 };
 
+export const hasAdjacentControllerContainer = (room: Room): boolean => {
+  const pos = room.controller?.pos;
+  if (pos == null) return false;
+  const structures: AnyStructure[] = pos.findInRange(FIND_STRUCTURES, 1);
+  if (structures.some((s: AnyStructure) => s.structureType === STRUCTURE_CONTAINER)) return true;
+  const sites = pos.findInRange(FIND_CONSTRUCTION_SITES, 1);
+  return sites.some(site => site.structureType === STRUCTURE_CONTAINER);
+};
+
 const isBlockingStructure = (structure: { structureType: string }): boolean =>
   !["container", "road", "rampart"].includes(structure.structureType);
 
-const findOpenAdjacentTile = (room: Room, source: Source): { x: number; y: number } | null => {
+const findOpenAdjacentTile = (room: Room, source: { pos: { x: number; y: number } }): { x: number; y: number } | null => {
   const terrain = room.getTerrain();
 
   for (let y = source.pos.y - 1; y <= source.pos.y + 1; y++) {
@@ -113,25 +103,40 @@ const findOpenAdjacentTile = (room: Room, source: Source): { x: number; y: numbe
   return null;
 };
 
+export const placeControllerContainerSite = (room: Room): void => {
+  if (room.controller?.pos == null) return;
+  const openTile = findOpenAdjacentTile(room, room.controller);
+  if (openTile != null) {
+    room.createConstructionSite(openTile.x, openTile.y, STRUCTURE_CONTAINER);
+  }
+};
+
 /**
  * Build task — places missing source containers and builds room construction sites.
- * Returns true only when the room has no construction sites and every source is
- * covered by an adjacent container or container construction site.
+ * Returns true only when the room has no construction sites, every source is
+ * covered by an adjacent container or container construction site, AND the
+ * controller has an adjacent container.
  */
 export const runBuildTask = (creep: Creep): boolean => {
   const sources = creep.room.find(FIND_SOURCES);
-  const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
   const uncoveredSources = sources.filter(source => !hasAdjacentContainerCoverage(source));
-
-  if (constructionSites.length === 0 && uncoveredSources.length === 0) {
-    return true;
-  }
 
   for (const source of uncoveredSources) {
     const openTile = findOpenAdjacentTile(creep.room, source);
     if (openTile != null) {
       creep.room.createConstructionSite(openTile.x, openTile.y, STRUCTURE_CONTAINER);
     }
+  }
+
+  // Place controller container site if not already present
+  if (!hasAdjacentControllerContainer(creep.room)) {
+    placeControllerContainerSite(creep.room);
+  }
+
+  const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
+
+  if (constructionSites.length === 0 && uncoveredSources.length === 0 && hasAdjacentControllerContainer(creep.room)) {
+    return true;
   }
 
   const harvestRate = computeRoomHarvestRate(creep.room.name);

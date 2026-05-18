@@ -7,7 +7,12 @@ describe("main", () => {
   let originalConsoleLog: (...data: any[]) => void = console.log;
 
   const createUpgraderCreep = (overrides: any = {}): any => ({
-    memory: { role: "upgrader", ...(overrides.memory ?? {}) },
+    memory: { role: "upgrader", task: "upgrade", ...(overrides.memory ?? {}) },
+    body: [
+      { type: "work", hits: 100, hitsMax: 100 },
+      { type: "carry", hits: 100, hitsMax: 100 },
+      { type: "move", hits: 100, hitsMax: 100 }
+    ],
     room: {
       controller: { id: "controller1" },
       storage: undefined,
@@ -34,8 +39,20 @@ describe("main", () => {
   });
 
   const createHarvesterCreep = (overrides: any = {}): any => ({
-    memory: { role: "harvester", ...(overrides.memory ?? {}) },
-    room: { storage: undefined, find: (): object[] => [{}], ...(overrides.room ?? {}) },
+    memory: { role: "harvester", task: "harvest", ...(overrides.memory ?? {}) },
+    body: [
+      { type: "work", hits: 100, hitsMax: 100 },
+      { type: "carry", hits: 100, hitsMax: 100 },
+      { type: "move", hits: 100, hitsMax: 100 }
+    ],
+    room: {
+      storage: undefined,
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: { id: "controller1" },
+      find: (_c: number, opts?: any): object[] => (opts != null ? [] : []),
+      ...(overrides.room ?? {})
+    },
     store: {
       getUsedCapacity: (): number => 0,
       getFreeCapacity: (): number => 10,
@@ -49,6 +66,8 @@ describe("main", () => {
     harvest: (): number => 0,
     moveTo: (): number => 0,
     transfer: (): number => 0,
+    upgradeController: (): number => 0,
+    withdraw: (): number => 0,
     ...overrides
   });
 

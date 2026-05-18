@@ -48,7 +48,7 @@ interface RoomContext {
 }
 
 interface SpawnQueueRole {
-  role: CreepMemory["role"];
+  role: string;
   body: (ctx: RoomContext) => BodyPartConstant[];
   namePrefix: string;
   /** Number of creeps this role wants right now for the given room. */
@@ -627,6 +627,7 @@ export const runSpawner = (): void => {
     if (homeRoom == null) continue;
     if (roomCounts[homeRoom] == null) roomCounts[homeRoom] = {};
     const role = creep.memory.role;
+    if (role == null) continue;
     roomCounts[homeRoom][role] = (roomCounts[homeRoom][role] ?? 0) + 1;
   }
 

@@ -54,6 +54,15 @@ describe("runBuildTask", () => {
 
     const room = {
       storage: { store: { getUsedCapacity: (): number => 100 } },
+      controller: {
+        pos: {
+          x: 30, y: 30,
+          findInRange: (constant: number): object[] =>
+            constant === (global as any).FIND_STRUCTURES
+              ? [{ structureType: (global as any).STRUCTURE_CONTAINER }]
+              : []
+        }
+      },
       find: (findConstant: number): object[] => {
         if (findConstant === (global as any).FIND_SOURCES) return [sourceWithContainer, sourceWithContainerSite];
         if (findConstant === (global as any).FIND_CONSTRUCTION_SITES) return [];
@@ -448,6 +457,7 @@ describe("runBuildTask", () => {
   // canBuildExpansions gate on placeExtensionSites
   // ---------------------------------------------------------------------------
 
+
   describe("extension placement gate", () => {
     beforeEach(() => {
       (global as any).WORK = "work";
@@ -467,7 +477,7 @@ describe("runBuildTask", () => {
       // canBuildExpansions(2, ~0.133, 200, 0) → remaining ≈ 1.87 ≥ 0.133 → true
       (global as any).Game.creeps = {
         H1: {
-          memory: { role: "harvester", room: "W1N1" },
+          memory: { task: "harvest", room: "W1N1" },
           body: [{ type: "work" }, { type: "carry" }, { type: "move" }]
         }
       };
@@ -551,6 +561,251 @@ describe("runBuildTask", () => {
 
       const extensionPlacements = extensionSites.filter(s => s.type === "extension");
       assert.equal(extensionPlacements.length, 0, "should NOT place extension sites when room has no income");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Controller container placement (U3)
+  // ---------------------------------------------------------------------------
+
+  describe("controller container placement (U3)", () => {
+    beforeEach(() => {
+      (global as any).FIND_STRUCTURES = 2;
+      (global as any).STRUCTURE_CONTAINER = "container";
+      (global as any).FIND_CONSTRUCTION_SITES = 3;
+    });
+
+    it("placeControllerContainerSite places a container site adjacent to the controller when none exists", () => {
+      const coveredSource = {
+        id: "source-covered",
+        pos: {
+          x: 5, y: 5,
+          findInRange: (constant: number): object[] =>
+            constant === (global as any).FIND_STRUCTURES
+              ? [{ structureType: "container" }]
+              : []
+        }
+      };
+
+      const controllerPos = { x: 20, y: 20, findInRange: (): object[] => [] };
+      const createCalls: { x: number; y: number; type: string }[] = [];
+
+      const room = {
+        name: "W1N1",
+        controller: { pos: controllerPos },
+        storage: undefined,
+        find: (constant: number): any[] => {
+          if (constant === (global as any).FIND_SOURCES) return [coveredSource];
+          if (constant === (global as any).FIND_CONSTRUCTION_SITES) return [];
+          return [];
+        },
+        createConstructionSite: (x: number, y: number, type: string): number => {
+          createCalls.push({ x, y, type });
+          return 0;
+        },
+        getTerrain: () => ({ get: (): number => 0 }),
+        lookForAt: (): object[] => []
+      };
+
+      const creep = {
+        room,
+        store: { getUsedCapacity: (): number => 50 },
+        pos: { findClosestByRange: (): null => null },
+        build: (): number => 0,
+        moveTo: (): number => 0,
+        harvest: (): number => 0,
+        withdraw: (): number => 0
+      };
+
+      (global as any).Game.creeps = {};
+
+      runBuildTask(creep as any);
+
+      // A container site should have been placed adjacent to the controller
+      const containerSites = createCalls.filter(c => c.type === "container");
+      assert.isAtLeast(containerSites.length, 1, "should place a controller container site");
+
+      // The placed site must be adjacent to controller (within range 1)
+      for (const site of containerSites) {
+        const dx = Math.abs(site.x - controllerPos.x);
+        const dy = Math.abs(site.y - controllerPos.y);
+        assert.isAtMost(Math.max(dx, dy), 1, "controller container site must be within range 1 of controller");
+      }
+    });
+
+    it("does NOT place a controller container site when one already exists (built container within range 1)", () => {
+      const coveredSource = {
+        id: "source-covered",
+        pos: {
+          x: 5, y: 5,
+          findInRange: (constant: number): object[] =>
+            constant === (global as any).FIND_STRUCTURES
+              ? [{ structureType: "container" }]
+              : []
+        }
+      };
+
+      const controllerPos = { x: 20, y: 20 };
+
+      let createCalls = 0;
+      const room = {
+        name: "W1N1",
+        controller: {
+          pos: {
+            ...controllerPos,
+            findInRange: (constant: number): object[] =>
+              constant === (global as any).FIND_STRUCTURES
+                ? [{ structureType: "container" }]
+                : []
+          }
+        },
+        storage: undefined,
+        find: (constant: number): any[] => {
+          if (constant === (global as any).FIND_SOURCES) return [coveredSource];
+          if (constant === (global as any).FIND_CONSTRUCTION_SITES) return [];
+          return [];
+        },
+        createConstructionSite: (): number => { createCalls++; return 0; },
+        getTerrain: () => ({ get: (): number => 0 }),
+        lookForAt: (): object[] => []
+      };
+
+      const creep = {
+        room,
+        store: { getUsedCapacity: (): number => 50 },
+        pos: { findClosestByRange: (): null => null },
+        build: (): number => 0,
+        moveTo: (): number => 0,
+        harvest: (): number => 0,
+        withdraw: (): number => 0
+      };
+
+      (global as any).Game.creeps = {};
+      (global as any).WORK = "work";
+      (global as any).BODYPART_COST = { work: 100, carry: 50, move: 50 };
+      (global as any).CREEP_LIFE_TIME = 1500;
+      (global as any).FIND_MY_SPAWNS = 4;
+      (global as any).FIND_MY_STRUCTURES = 107;
+      (global as any).STRUCTURE_EXTENSION = "extension";
+      (global as any).CONTROLLER_STRUCTURES = { extension: { 1: 0, 2: 5 } };
+
+      runBuildTask(creep as any);
+
+      assert.equal(createCalls, 0, "must not place another container site when one already exists");
+    });
+
+    it("does NOT place a controller container site when a container construction site exists within range 1", () => {
+      const coveredSource = {
+        id: "source-covered",
+        pos: {
+          x: 5, y: 5,
+          findInRange: (constant: number): object[] =>
+            constant === (global as any).FIND_STRUCTURES
+              ? [{ structureType: "container" }]
+              : []
+        }
+      };
+
+      const controllerPos = { x: 20, y: 20 };
+
+      let createCalls = 0;
+      const room = {
+        name: "W1N1",
+        controller: {
+          pos: {
+            ...controllerPos,
+            findInRange: (constant: number): object[] =>
+              constant === (global as any).FIND_CONSTRUCTION_SITES
+                ? [{ structureType: "container" }]  // site, not built structure
+                : []
+          }
+        },
+        storage: undefined,
+        find: (constant: number): any[] => {
+          if (constant === (global as any).FIND_SOURCES) return [coveredSource];
+          if (constant === (global as any).FIND_CONSTRUCTION_SITES) return [];
+          return [];
+        },
+        createConstructionSite: (): number => { createCalls++; return 0; },
+        getTerrain: () => ({ get: (): number => 0 }),
+        lookForAt: (): object[] => []
+      };
+
+      const creep = {
+        room,
+        store: { getUsedCapacity: (): number => 50 },
+        pos: { findClosestByRange: (): null => null },
+        build: (): number => 0,
+        moveTo: (): number => 0,
+        harvest: (): number => 0,
+        withdraw: (): number => 0
+      };
+
+      (global as any).Game.creeps = {};
+      (global as any).WORK = "work";
+      (global as any).BODYPART_COST = { work: 100, carry: 50, move: 50 };
+      (global as any).CREEP_LIFE_TIME = 1500;
+      (global as any).FIND_MY_SPAWNS = 4;
+      (global as any).FIND_MY_STRUCTURES = 107;
+      (global as any).STRUCTURE_EXTENSION = "extension";
+      (global as any).CONTROLLER_STRUCTURES = { extension: { 1: 0, 2: 5 } };
+
+      runBuildTask(creep as any);
+
+      assert.equal(createCalls, 0, "must not place a controller container site when one is already under construction");
+    });
+
+    it("returns false when sources are covered but controller has no adjacent container (not done until U3)", () => {
+      // After U3, the completion condition includes hasAdjacentControllerContainer.
+      // Currently runBuildTask returns true here (bug). After U3: returns false.
+      // So this test FAILS until U3.
+      const coveredSource = {
+        id: "source-covered",
+        pos: {
+          x: 5, y: 5,
+          findInRange: (constant: number): object[] =>
+            constant === (global as any).FIND_STRUCTURES
+              ? [{ structureType: "container" }]
+              : []
+        }
+      };
+
+      // Controller has NO adjacent container
+      const room = {
+        name: "W1N1",
+        controller: {
+          pos: {
+            x: 20, y: 20,
+            findInRange: (): object[] => [] // no container near controller
+          }
+        },
+        storage: undefined,
+        find: (constant: number): any[] => {
+          if (constant === (global as any).FIND_SOURCES) return [coveredSource];
+          if (constant === (global as any).FIND_CONSTRUCTION_SITES) return [];
+          return [];
+        },
+        createConstructionSite: (): number => 0,
+        getTerrain: () => ({ get: (): number => 0 }),
+        lookForAt: (): object[] => []
+      };
+
+      const creep = {
+        room,
+        store: { getUsedCapacity: (): number => 0 },
+        pos: { findClosestByRange: (): null => null },
+        build: (): number => 0,
+        moveTo: (): number => 0,
+        harvest: (): number => 0,
+        withdraw: (): number => 0
+      };
+
+      (global as any).Game.creeps = {};
+
+      const done = runBuildTask(creep as any);
+
+      // Until U3: runBuildTask returns true here (bug). After U3: returns false.
+      assert.isFalse(done, "should not be done when controller has no adjacent container");
     });
   });
 });
