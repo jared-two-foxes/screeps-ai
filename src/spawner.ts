@@ -81,7 +81,9 @@ export const calcBodyCost = (body: BodyPartConstant[]): number => {
 };
 
 export const selectWorkerBody = (room: Room): BodyPartConstant[] =>
-  room.energyCapacityAvailable >= DOUBLE_BODY_THRESHOLD ? bodies.workerDouble : bodies.worker;
+  room.energyCapacityAvailable >= DOUBLE_BODY_THRESHOLD && room.energyAvailable >= DOUBLE_BODY_THRESHOLD
+    ? bodies.workerDouble
+    : bodies.worker;
 
 const positionKey = (pos: RoomPosition): string => `${pos.roomName}:${pos.x},${pos.y}`;
 
