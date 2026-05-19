@@ -38,24 +38,24 @@ const isValidExtensionTile = (room: Room, terrain: RoomTerrain, x: number, y: nu
 /**
  * Returns true if placing a blocking structure at (x, y) would still leave
  * a walkable path from the spawn to the given goal position.
- * Uses PathFinder with the candidate tile treated as an impassable obstacle.
+ * baseCosts must already include all existing obstacles; the candidate tile
+ * is cloned on top so cumulative blocking is correctly accounted for.
  */
 const tileKeepsSpawnConnected = (
   spawnPos: RoomPosition,
   goalPos: RoomPosition,
   candidateX: number,
-  candidateY: number
+  candidateY: number,
+  baseCosts: CostMatrix
 ): boolean => {
   const result = PathFinder.search(
     spawnPos,
     { pos: goalPos, range: 1 },
     {
       maxRooms: 1,
-      roomCallback: (roomName: string) => {
-        const costs = new PathFinder.CostMatrix();
-        // Treat the candidate tile as a wall for this dry-run check.
+      roomCallback: () => {
+        const costs = baseCosts.clone();
         costs.set(candidateX, candidateY, 255);
-        void roomName;
         return costs;
       }
     } as unknown as PathFinderOpts
@@ -78,6 +78,14 @@ const placeExtensionSites = (room: Room): void => {
   const terrain = room.getTerrain();
   const { x: sx, y: sy } = spawn.pos;
 
+  // Seed baseCosts with all existing construction sites so that each
+  // candidate tile is checked against the cumulative blocked state, not
+  // just itself in isolation.
+  const baseCosts: CostMatrix = new PathFinder.CostMatrix();
+  for (const site of room.find(FIND_CONSTRUCTION_SITES)) {
+    baseCosts.set(site.pos.x, site.pos.y, 255);
+  }
+
   for (let radius = 1; radius <= 10 && needed > 0; radius++) {
     for (let dx = -radius; dx <= radius && needed > 0; dx++) {
       for (let dy = -radius; dy <= radius && needed > 0; dy++) {
@@ -87,9 +95,12 @@ const placeExtensionSites = (room: Room): void => {
         if (!isValidExtensionTile(room, terrain, x, y)) continue;
         // Skip this tile if placing an extension here would cut off the spawn
         // from any of its anchors (sources / controller).
-        const blocks = anchors.some(anchor => !tileKeepsSpawnConnected(spawn.pos, anchor, x, y));
+        const blocks = anchors.some(anchor => !tileKeepsSpawnConnected(spawn.pos, anchor, x, y, baseCosts));
         if (blocks) continue;
         room.createConstructionSite(x, y, STRUCTURE_EXTENSION);
+        // Update baseCosts immediately so the next candidate sees this site
+        // as already blocked.
+        baseCosts.set(x, y, 255);
         needed--;
       }
     }

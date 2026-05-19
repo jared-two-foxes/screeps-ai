@@ -26,6 +26,7 @@ describe("runBuildTask", () => {
       search: (): { path: object[]; incomplete: boolean } => ({ path: [{}], incomplete: false }),
       CostMatrix: class {
         public set(_x: number, _y: number, _cost: number): void { /* noop */ }
+        public clone(): object { return new (global as any).PathFinder.CostMatrix(); }
       }
     };
   });
@@ -498,7 +499,7 @@ describe("runBuildTask", () => {
         storage: undefined,
         find: (constant: number): any[] => {
           if (constant === (global as any).FIND_SOURCES) return [];
-          if (constant === (global as any).FIND_CONSTRUCTION_SITES) return [{ id: "s1", structureType: "road" }];
+          if (constant === (global as any).FIND_CONSTRUCTION_SITES) return [{ id: "s1", structureType: "road", pos: { x: 10, y: 10 } }];
           if (constant === (global as any).FIND_MY_SPAWNS) return [spawn];
           if (constant === (global as any).FIND_MY_STRUCTURES) return [];
           return [];
@@ -541,7 +542,7 @@ describe("runBuildTask", () => {
         storage: undefined,
         find: (constant: number): any[] => {
           if (constant === (global as any).FIND_SOURCES) return [];
-          if (constant === (global as any).FIND_CONSTRUCTION_SITES) return [{ id: "s1", structureType: "road" }];
+          if (constant === (global as any).FIND_CONSTRUCTION_SITES) return [{ id: "s1", structureType: "road", pos: { x: 10, y: 10 } }];
           if (constant === (global as any).FIND_MY_SPAWNS) return [spawn];
           if (constant === (global as any).FIND_MY_STRUCTURES) return [];
           return [];
