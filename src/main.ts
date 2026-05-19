@@ -37,12 +37,19 @@ export const loop = ErrorMapper.wrapLoop(() => {
     roomTaskCounts[r][t] = (roomTaskCounts[r][t] ?? 0) + 1;
   }
 
+  // Pre-compute per-room economy targets (one harvester slot per source)
+  const roomEconomyTargets: Record<string, number> = {};
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    roomEconomyTargets[roomName] = room.find(FIND_SOURCES).length;
+  }
+
   for (const creepName in Game.creeps) {
     const creep = Game.creeps[creepName];
     const taskCounts = roomTaskCounts[creep.memory.room] ?? {};
     const slots = {
       taskCounts,
-      economyTarget: 1,
+      economyTarget: roomEconomyTargets[creep.memory.room] ?? 1,
       hasBuildSites: creep.room?.find != null ? creep.room.find(FIND_CONSTRUCTION_SITES).length > 0 : false,
       hasActiveStationaryUpgrader: (taskCounts.upgradeFromContainer ?? 0) > 0
     };
