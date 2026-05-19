@@ -16,22 +16,10 @@ const countUpgradersInRoom = (roomName: string): number => {
   return count;
 };
 
-const extensionsNeeded = (room: Room): number => {
-  const controller = room.controller;
-  if (controller == null) return 0;
 
-  const quota: number = (CONTROLLER_STRUCTURES[STRUCTURE_EXTENSION] as Record<number, number>)[controller.level] ?? 0;
-  const built = room.find(FIND_MY_STRUCTURES, { filter: s => s.structureType === STRUCTURE_EXTENSION }).length;
-  const sites = room.find(FIND_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_EXTENSION }).length;
-
-  return Math.max(0, quota - built - sites);
-};
-
-const isValidExtensionTile = (room: Room, terrain: RoomTerrain, x: number, y: number): boolean => {
+const isValidExtensionTile = (terrain: RoomTerrain, x: number, y: number): boolean => {
   if (x < 1 || x > 48 || y < 1 || y > 48) return false;
   if (terrain.get(x, y) === TERRAIN_MASK_WALL) return false;
-  if (room.lookForAt(LOOK_STRUCTURES, x, y).length > 0) return false;
-  if (room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0) return false;
   return true;
 };
 
@@ -63,47 +51,80 @@ const tileKeepsSpawnConnected = (
   return !result.incomplete;
 };
 
-const placeExtensionSites = (room: Room): void => {
-  let needed = extensionsNeeded(room);
-  if (needed === 0) return;
+/**
+ * Computes (once) the full set of extension positions for the room's current
+ * RCL and stores them in Memory.extensionPlan[room.name].  Uses PathFinder to
+ * ensure no placed tile disconnects the spawn from sources or the controller.
+ *
+ * This is intentionally expensive — it should only be called when the RCL
+ * changes (or on first boot when no plan exists yet).
+ */
+export const computeExtensionPlan = (room: Room): void => {
+  const controller = room.controller;
+  if (controller == null) return;
+
+  const quota: number = (CONTROLLER_STRUCTURES[STRUCTURE_EXTENSION] as Record<number, number>)[controller.level] ?? 0;
 
   const spawn = room.find(FIND_MY_SPAWNS)[0];
   if (spawn == null) return;
 
-  // Need at least one connectivity anchor — use sources and controller.
-  const anchors: RoomPosition[] = room.find(FIND_SOURCES).map(s => s.pos);
-  if (room.controller != null) anchors.push(room.controller.pos);
-  if (anchors.length === 0) return;
+  const anchors: RoomPosition[] = room.find(FIND_SOURCES).map((s: Source) => s.pos);
+  if (controller != null) anchors.push(controller.pos);
 
   const terrain = room.getTerrain();
   const { x: sx, y: sy } = spawn.pos;
 
-  // Seed baseCosts with all existing construction sites so that each
-  // candidate tile is checked against the cumulative blocked state, not
-  // just itself in isolation.
+  // Block existing structures and permanent obstacles in baseCosts so the
+  // planner treats them as already occupied.
   const baseCosts: CostMatrix = new PathFinder.CostMatrix();
-  for (const site of room.find(FIND_CONSTRUCTION_SITES)) {
-    baseCosts.set(site.pos.x, site.pos.y, 255);
+  for (const structure of room.find(FIND_MY_STRUCTURES)) {
+    baseCosts.set(structure.pos.x, structure.pos.y, 255);
   }
 
-  for (let radius = 1; radius <= 10 && needed > 0; radius++) {
-    for (let dx = -radius; dx <= radius && needed > 0; dx++) {
-      for (let dy = -radius; dy <= radius && needed > 0; dy++) {
+  const planned: Array<{ x: number; y: number }> = [];
+  let remaining = quota;
+
+  for (let radius = 1; radius <= 20 && remaining > 0; radius++) {
+    for (let dx = -radius; dx <= radius && remaining > 0; dx++) {
+      for (let dy = -radius; dy <= radius && remaining > 0; dy++) {
         if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue; // perimeter only
         const x = sx + dx;
         const y = sy + dy;
-        if (!isValidExtensionTile(room, terrain, x, y)) continue;
-        // Skip this tile if placing an extension here would cut off the spawn
-        // from any of its anchors (sources / controller).
+        if (!isValidExtensionTile(terrain, x, y)) continue;
+        // Skip if any anchor would become unreachable from spawn
         const blocks = anchors.some(anchor => !tileKeepsSpawnConnected(spawn.pos, anchor, x, y, baseCosts));
         if (blocks) continue;
-        room.createConstructionSite(x, y, STRUCTURE_EXTENSION);
-        // Update baseCosts immediately so the next candidate sees this site
-        // as already blocked.
+        planned.push({ x, y });
         baseCosts.set(x, y, 255);
-        needed--;
+        remaining--;
       }
     }
+  }
+
+  if (Memory.extensionPlan == null) Memory.extensionPlan = {};
+  Memory.extensionPlan[room.name] = { rcl: controller.level, sites: planned };
+};
+
+/**
+ * Places construction sites for extensions that are in the plan but not yet
+ * built or under construction.  No PathFinder calls — pure Memory read + API
+ * calls only.
+ */
+const placeExtensionSites = (room: Room): void => {
+  const plan = Memory.extensionPlan?.[room.name];
+  if (plan == null) return;
+
+  const builtCount = room.find(FIND_MY_STRUCTURES, { filter: (s: AnyStructure) => s.structureType === STRUCTURE_EXTENSION }).length;
+  const siteCount = room.find(FIND_CONSTRUCTION_SITES, { filter: (s: ConstructionSite) => s.structureType === STRUCTURE_EXTENSION }).length;
+  const alreadyAccountedFor = builtCount + siteCount;
+
+  for (let i = alreadyAccountedFor; i < plan.sites.length; i++) {
+    const { x, y } = plan.sites[i];
+    // Skip tiles now occupied by something else (e.g. manually placed structures)
+    if (room.lookForAt(LOOK_STRUCTURES, x, y).length > 0) continue;
+    if (room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0) continue;
+    room.createConstructionSite(x, y, STRUCTURE_EXTENSION);
+    break; // place one per tick to avoid flooding the construction site limit
   }
 };
 

@@ -3,6 +3,7 @@ import { updateStats } from "utils/stats";
 import { evaluateTask } from "tasks/evaluator";
 import { runTask } from "tasks/runner";
 import { clearDistanceCache, runSpawner } from "spawner";
+import { computeExtensionPlan } from "tasks/build";
 
 const DISTANCE_CACHE_CLEAR_INTERVAL = 1000;
 
@@ -25,6 +26,18 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
   updateStats();
   runSpawner();
+
+  // Re-compute extension plan when RCL advances or plan is missing.
+  // PathFinder runs here (once per RCL change), never inside the per-creep loop.
+  if (Memory.extensionPlan == null) Memory.extensionPlan = {};
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (room.controller == null) continue;
+    const stored = Memory.extensionPlan[roomName];
+    if (stored == null || stored.rcl !== room.controller.level) {
+      computeExtensionPlan(room);
+    }
+  }
 
   // Pre-compute per-room task counts once per tick (avoids O(N²) per-creep inner loop)
   const roomTaskCounts: Record<string, Partial<Record<string, number>>> = {};

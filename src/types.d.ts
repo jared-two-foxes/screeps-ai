@@ -8,10 +8,16 @@ declare global {
     byTask: { [task: string]: number };
   }
 
+  interface ExtensionPlanEntry {
+    rcl: number;
+    sites: Array<{ x: number; y: number }>;
+  }
+
   interface Memory {
     uuid: number;
     log: any;
     stats: { rooms: { [roomName: string]: RoomStats } };
+    extensionPlan: { [roomName: string]: ExtensionPlanEntry };
   }
 
   interface CreepMemory {

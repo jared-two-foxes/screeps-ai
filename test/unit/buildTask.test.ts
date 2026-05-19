@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { runBuildTask } from "../../src/tasks/build";
+import { computeExtensionPlan, runBuildTask } from "../../src/tasks/build";
 import { Game, Memory } from "./mock";
 
 describe("runBuildTask", () => {
@@ -480,6 +480,21 @@ describe("runBuildTask", () => {
     });
 
     it("places extension sites when surplus income permits expansion", () => {
+      // Memory.extensionPlan must be pre-seeded (in production this is done by
+      // computeExtensionPlan in main.ts on RCL change).
+      (global as any).Memory.extensionPlan = {
+        W1N1: {
+          rcl: 2,
+          sites: [
+            { x: 26, y: 25 },
+            { x: 27, y: 25 },
+            { x: 28, y: 25 },
+            { x: 29, y: 25 },
+            { x: 30, y: 25 }
+          ]
+        }
+      };
+
       // 1 harvester with [WORK, CARRY, MOVE] → harvestRate = 2 e/tick
       // fleetCost ≈ 200/1500 ≈ 0.133 e/tick, upgraderCount = 0
       // canBuildExpansions(2, ~0.133, 200, 0) → remaining ≈ 1.87 ≥ 0.133 → true
@@ -569,6 +584,100 @@ describe("runBuildTask", () => {
 
       const extensionPlacements = extensionSites.filter(s => s.type === "extension");
       assert.equal(extensionPlacements.length, 0, "should NOT place extension sites when room has no income");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // computeExtensionPlan
+  // ---------------------------------------------------------------------------
+
+  describe("computeExtensionPlan", () => {
+    beforeEach(() => {
+      (global as any).FIND_MY_SPAWNS = 4;
+      (global as any).FIND_MY_STRUCTURES = 107;
+      (global as any).FIND_SOURCES = 1;
+      (global as any).STRUCTURE_EXTENSION = "extension";
+      (global as any).CONTROLLER_STRUCTURES = {
+        extension: { 1: 0, 2: 5, 3: 10, 4: 20, 5: 30, 6: 40, 7: 50, 8: 60 }
+      };
+      (global as any).TERRAIN_MASK_WALL = 1;
+      (global as any).Memory.extensionPlan = {};
+    });
+
+    it("stores a plan in Memory keyed by room name with correct rcl", () => {
+      const spawn = { pos: { x: 25, y: 25 } };
+      const source = { pos: { x: 10, y: 10 } };
+      const room = {
+        name: "W1N1",
+        controller: { level: 2, pos: { x: 30, y: 30 } },
+        find: (constant: number): any[] => {
+          if (constant === (global as any).FIND_MY_SPAWNS) return [spawn];
+          if (constant === (global as any).FIND_SOURCES) return [source];
+          if (constant === (global as any).FIND_MY_STRUCTURES) return [];
+          return [];
+        },
+        getTerrain: () => ({ get: (): number => 0 })
+      };
+
+      computeExtensionPlan(room as any);
+
+      const plan = (global as any).Memory.extensionPlan["W1N1"];
+      assert.isDefined(plan, "plan should be stored in Memory");
+      assert.equal(plan.rcl, 2);
+      assert.isArray(plan.sites);
+      // RCL2 quota = 5
+      assert.equal(plan.sites.length, 5, "should plan exactly quota extension sites");
+    });
+
+    it("plans fewer sites than quota when walls block candidate tiles", () => {
+      const spawn = { pos: { x: 25, y: 25 } };
+      // Make all tiles walls except the spawn tile itself
+      const room = {
+        name: "W1N2",
+        controller: { level: 2, pos: { x: 30, y: 30 } },
+        find: (constant: number): any[] => {
+          if (constant === (global as any).FIND_MY_SPAWNS) return [spawn];
+          if (constant === (global as any).FIND_SOURCES) return [];
+          if (constant === (global as any).FIND_MY_STRUCTURES) return [];
+          return [];
+        },
+        getTerrain: () => ({
+          get: (x: number, y: number): number =>
+            // wall everything except spawn tile so no valid placements exist
+            x === 25 && y === 25 ? 0 : (global as any).TERRAIN_MASK_WALL
+        })
+      };
+
+      computeExtensionPlan(room as any);
+
+      const plan = (global as any).Memory.extensionPlan["W1N2"];
+      assert.isDefined(plan);
+      assert.equal(plan.sites.length, 0, "no sites should be planned when all tiles are walls");
+    });
+
+    it("overwrites an existing plan when called again", () => {
+      (global as any).Memory.extensionPlan = {
+        W1N3: { rcl: 1, sites: [{ x: 1, y: 1 }] }
+      };
+
+      const spawn = { pos: { x: 25, y: 25 } };
+      const room = {
+        name: "W1N3",
+        controller: { level: 2, pos: { x: 30, y: 30 } },
+        find: (constant: number): any[] => {
+          if (constant === (global as any).FIND_MY_SPAWNS) return [spawn];
+          if (constant === (global as any).FIND_SOURCES) return [];
+          if (constant === (global as any).FIND_MY_STRUCTURES) return [];
+          return [];
+        },
+        getTerrain: () => ({ get: (): number => 0 })
+      };
+
+      computeExtensionPlan(room as any);
+
+      const plan = (global as any).Memory.extensionPlan["W1N3"];
+      assert.equal(plan.rcl, 2, "plan rcl should be updated to new RCL");
+      assert.notDeepEqual(plan.sites, [{ x: 1, y: 1 }], "old sites should be overwritten");
     });
   });
 
