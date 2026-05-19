@@ -21,6 +21,13 @@ describe("runBuildTask", () => {
     (global as any).LOOK_STRUCTURES = "structure";
     (global as any).LOOK_CONSTRUCTION_SITES = "constructionSite";
     (global as any).CREEP_LIFE_TIME = 1500; // always 1500 in Screeps
+    // PathFinder mock — connectivity check always passes by default
+    (global as any).PathFinder = {
+      search: (): { path: object[]; incomplete: boolean } => ({ path: [{}], incomplete: false }),
+      CostMatrix: class {
+        public set(_x: number, _y: number, _cost: number): void { /* noop */ }
+      }
+    };
   });
 
   it("returns true only when no construction sites exist and all sources are container-covered", () => {

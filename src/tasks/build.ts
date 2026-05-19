@@ -35,12 +35,45 @@ const isValidExtensionTile = (room: Room, terrain: RoomTerrain, x: number, y: nu
   return true;
 };
 
+/**
+ * Returns true if placing a blocking structure at (x, y) would still leave
+ * a walkable path from the spawn to the given goal position.
+ * Uses PathFinder with the candidate tile treated as an impassable obstacle.
+ */
+const tileKeepsSpawnConnected = (
+  spawnPos: RoomPosition,
+  goalPos: RoomPosition,
+  candidateX: number,
+  candidateY: number
+): boolean => {
+  const result = PathFinder.search(
+    spawnPos,
+    { pos: goalPos, range: 1 },
+    {
+      maxRooms: 1,
+      roomCallback: (roomName: string) => {
+        const costs = new PathFinder.CostMatrix();
+        // Treat the candidate tile as a wall for this dry-run check.
+        costs.set(candidateX, candidateY, 255);
+        void roomName;
+        return costs;
+      }
+    } as unknown as PathFinderOpts
+  );
+  return !result.incomplete;
+};
+
 const placeExtensionSites = (room: Room): void => {
   let needed = extensionsNeeded(room);
   if (needed === 0) return;
 
   const spawn = room.find(FIND_MY_SPAWNS)[0];
   if (spawn == null) return;
+
+  // Need at least one connectivity anchor — use sources and controller.
+  const anchors: RoomPosition[] = room.find(FIND_SOURCES).map(s => s.pos);
+  if (room.controller != null) anchors.push(room.controller.pos);
+  if (anchors.length === 0) return;
 
   const terrain = room.getTerrain();
   const { x: sx, y: sy } = spawn.pos;
@@ -52,6 +85,10 @@ const placeExtensionSites = (room: Room): void => {
         const x = sx + dx;
         const y = sy + dy;
         if (!isValidExtensionTile(room, terrain, x, y)) continue;
+        // Skip this tile if placing an extension here would cut off the spawn
+        // from any of its anchors (sources / controller).
+        const blocks = anchors.some(anchor => !tileKeepsSpawnConnected(spawn.pos, anchor, x, y));
+        if (blocks) continue;
         room.createConstructionSite(x, y, STRUCTURE_EXTENSION);
         needed--;
       }
