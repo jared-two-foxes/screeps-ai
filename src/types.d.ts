@@ -10,7 +10,7 @@ declare global {
 
   interface ExtensionPlanEntry {
     rcl: number;
-    sites: Array<{ x: number; y: number }>;
+    sites: { x: number; y: number }[];
   }
 
   interface Memory {
@@ -26,5 +26,11 @@ declare global {
     task?: TaskType;
     sourceId?: Id<Source>;
     obtainedFromId?: Id<StructureContainer>;
+    /** Cached deposit target — cleared on task completion or when target is full/gone. */
+    depositTargetId?: Id<StructureExtension | StructureSpawn | StructureStorage>;
+    /** Cached forage target — cleared on task completion or when target is empty/gone. */
+    forageTargetId?: Id<StructureContainer | Resource>;
+    /** Cached construction site target — cleared on task completion or when site is gone. */
+    buildSiteId?: Id<ConstructionSite>;
   }
 }

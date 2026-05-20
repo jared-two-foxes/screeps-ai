@@ -18,7 +18,7 @@ export const runUpgradeTask = (creep: Creep): boolean => {
   }
 
   const upgradeResult = creep.upgradeController(controller);
-  if (upgradeResult === ERR_NOT_IN_RANGE) creep.moveTo(controller);
+  if (upgradeResult === ERR_NOT_IN_RANGE) creep.moveTo(controller, { reusePath: 20 });
 
   return false;
 };

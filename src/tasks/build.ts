@@ -77,7 +77,7 @@ export const computeExtensionPlan = (room: Room): void => {
     baseCosts.set(structure.pos.x, structure.pos.y, 255);
   }
 
-  const planned: Array<{ x: number; y: number }> = [];
+  const planned: { x: number; y: number }[] = [];
   let remaining = quota;
 
   for (let radius = 1; radius <= 20 && remaining > 0; radius++) {
@@ -164,11 +164,16 @@ const findOpenAdjacentTile = (room: Room, source: { pos: { x: number; y: number 
  * Single-phase: assumes the creep arrives with energy. Returns true immediately
  * if the store is empty (re-evaluate → harvest/forage) or when there is nothing
  * left to build (no construction sites and all sources are container-covered).
- * Clears obtainedFromId on completion.
+ * Clears obtainedFromId and buildSiteId on completion.
+ *
+ * Construction site target is cached in creep.memory.buildSiteId and revalidated
+ * each tick (existence check only — sites don't have capacity). Only falls back
+ * to findClosestByRange when the cached site is gone (built or cancelled).
  */
 export const runBuildTask = (creep: Creep): boolean => {
   if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
     creep.memory.obtainedFromId = undefined;
+    creep.memory.buildSiteId = undefined;
     return true;
   }
 
@@ -186,6 +191,7 @@ export const runBuildTask = (creep: Creep): boolean => {
 
   if (constructionSites.length === 0 && uncoveredSources.length === 0) {
     creep.memory.obtainedFromId = undefined;
+    creep.memory.buildSiteId = undefined;
     return true;
   }
 
@@ -196,11 +202,22 @@ export const runBuildTask = (creep: Creep): boolean => {
     placeExtensionSites(creep.room);
   }
 
-  const constructionSite = creep.pos.findClosestByRange(FIND_CONSTRUCTION_SITES);
+  // Resolve cached construction site; re-scan only if gone.
+  let constructionSite: ConstructionSite | null = null;
+  if (creep.memory.buildSiteId != null) {
+    constructionSite = Game.getObjectById(creep.memory.buildSiteId);
+  }
+  if (constructionSite == null) {
+    constructionSite = creep.pos.findClosestByRange(FIND_CONSTRUCTION_SITES);
+    creep.memory.buildSiteId = constructionSite != null
+      ? (constructionSite as unknown as { id: Id<ConstructionSite> }).id
+      : undefined;
+  }
+
   if (constructionSite != null) {
     const buildResult = creep.build(constructionSite);
     if (buildResult === ERR_NOT_IN_RANGE) {
-      creep.moveTo(constructionSite);
+      creep.moveTo(constructionSite, { reusePath: 20 });
     }
   }
 
