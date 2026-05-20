@@ -7,11 +7,7 @@ const countUpgradersInRoom = (roomName: string): number => {
   let count = 0;
   for (const name in Game.creeps) {
     const creep = Game.creeps[name];
-    if (
-      creep.memory.room === roomName &&
-      (creep.memory.task === "upgrade" || creep.memory.task === "upgradeFromContainer")
-    )
-      count++;
+    if (creep.memory.room === roomName && creep.memory.task === "upgrade") count++;
   }
   return count;
 };
@@ -138,15 +134,6 @@ const hasAdjacentContainerCoverage = (source: Source): boolean => {
   return adjacentSites.some(site => site.structureType === STRUCTURE_CONTAINER);
 };
 
-export const hasAdjacentControllerContainer = (room: Room): boolean => {
-  const pos = room.controller?.pos;
-  if (pos == null) return false;
-  const structures: AnyStructure[] = pos.findInRange(FIND_STRUCTURES, 1);
-  if (structures.some((s: AnyStructure) => s.structureType === STRUCTURE_CONTAINER)) return true;
-  const sites = pos.findInRange(FIND_CONSTRUCTION_SITES, 1);
-  return sites.some(site => site.structureType === STRUCTURE_CONTAINER);
-};
-
 const isBlockingStructure = (structure: { structureType: string }): boolean =>
   !["container", "road", "rampart"].includes(structure.structureType);
 
@@ -172,21 +159,19 @@ const findOpenAdjacentTile = (room: Room, source: { pos: { x: number; y: number 
   return null;
 };
 
-export const placeControllerContainerSite = (room: Room): void => {
-  if (room.controller?.pos == null) return;
-  const openTile = findOpenAdjacentTile(room, room.controller);
-  if (openTile != null) {
-    room.createConstructionSite(openTile.x, openTile.y, STRUCTURE_CONTAINER);
-  }
-};
-
 /**
  * Build task — places missing source containers and builds room construction sites.
- * Returns true only when the room has no construction sites, every source is
- * covered by an adjacent container or container construction site, AND the
- * controller has an adjacent container.
+ * Single-phase: assumes the creep arrives with energy. Returns true immediately
+ * if the store is empty (re-evaluate → harvest/forage) or when there is nothing
+ * left to build (no construction sites and all sources are container-covered).
+ * Clears obtainedFromId on completion.
  */
 export const runBuildTask = (creep: Creep): boolean => {
+  if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
+    creep.memory.obtainedFromId = undefined;
+    return true;
+  }
+
   const sources = creep.room.find(FIND_SOURCES);
   const uncoveredSources = sources.filter(source => !hasAdjacentContainerCoverage(source));
 
@@ -197,14 +182,10 @@ export const runBuildTask = (creep: Creep): boolean => {
     }
   }
 
-  // Place controller container site if not already present
-  if (!hasAdjacentControllerContainer(creep.room)) {
-    placeControllerContainerSite(creep.room);
-  }
-
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
 
-  if (constructionSites.length === 0 && uncoveredSources.length === 0 && hasAdjacentControllerContainer(creep.room)) {
+  if (constructionSites.length === 0 && uncoveredSources.length === 0) {
+    creep.memory.obtainedFromId = undefined;
     return true;
   }
 
@@ -213,28 +194,6 @@ export const runBuildTask = (creep: Creep): boolean => {
   const upgraders = countUpgradersInRoom(creep.room.name);
   if (canBuildExpansions(harvestRate, fleetCost, WORKER_BODY_COST, upgraders)) {
     placeExtensionSites(creep.room);
-  }
-
-  if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
-    const storage = creep.room.storage;
-    if (storage != null && storage.store.getUsedCapacity(RESOURCE_ENERGY) > 0) {
-      const withdrawResult = creep.withdraw(storage, RESOURCE_ENERGY);
-      if (withdrawResult === ERR_NOT_IN_RANGE) {
-        creep.moveTo(storage);
-      }
-
-      return false;
-    }
-
-    const source = creep.pos.findClosestByRange(FIND_SOURCES_ACTIVE);
-    if (source != null) {
-      const harvestResult = creep.harvest(source);
-      if (harvestResult === ERR_NOT_IN_RANGE) {
-        creep.moveTo(source);
-      }
-    }
-
-    return false;
   }
 
   const constructionSite = creep.pos.findClosestByRange(FIND_CONSTRUCTION_SITES);

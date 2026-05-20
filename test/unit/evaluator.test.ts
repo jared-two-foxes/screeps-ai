@@ -259,9 +259,10 @@ describe("evaluateTask (body-aware dispatch)", () => {
       assert.isDefined(creep.memory.sourceId, "sourceId should be defined after harvest assignment");
     });
 
-    it("harvest slot filled → skips to upgrade minimum check → 'upgrade'", () => {
+    it("harvest slot filled, creep has energy → skips to upgrade minimum check → 'upgrade'", () => {
       const creep = makeCreep({
         body: WORKER_BODY,
+        energyCarried: 50,
         roomEnergyAvailable: 200,
         roomEnergyCapacity: 300
       });
@@ -273,9 +274,25 @@ describe("evaluateTask (body-aware dispatch)", () => {
       assert.equal(evaluateTask(creep, slots), "upgrade");
     });
 
-    it("harvest filled, stationaryUpgrader active, no build sites → 'upgrade'", () => {
+    it("harvest slot filled, creep has NO energy → 'harvest' (single-phase: refill first)", () => {
       const creep = makeCreep({
         body: WORKER_BODY,
+        energyCarried: 0,
+        roomEnergyAvailable: 200,
+        roomEnergyCapacity: 300
+      });
+      const slots = makeSlots({
+        economyTarget: 1,
+        taskCounts: { harvest: 1, upgrade: 0 },
+        hasActiveStationaryUpgrader: false
+      });
+      assert.equal(evaluateTask(creep, slots), "harvest");
+    });
+
+    it("harvest filled, stationaryUpgrader active, no build sites, creep has energy → 'upgrade'", () => {
+      const creep = makeCreep({
+        body: WORKER_BODY,
+        energyCarried: 50,
         roomEnergyAvailable: 200,
         roomEnergyCapacity: 300
       });
@@ -288,9 +305,10 @@ describe("evaluateTask (body-aware dispatch)", () => {
       assert.equal(evaluateTask(creep, slots), "upgrade");
     });
 
-    it("harvest filled, stationaryUpgrader active, build sites present → 'build'", () => {
+    it("harvest filled, stationaryUpgrader active, build sites present, creep has energy → 'build'", () => {
       const creep = makeCreep({
         body: WORKER_BODY,
+        energyCarried: 50,
         roomEnergyAvailable: 200,
         roomEnergyCapacity: 300
       });
@@ -303,9 +321,10 @@ describe("evaluateTask (body-aware dispatch)", () => {
       assert.equal(evaluateTask(creep, slots), "build");
     });
 
-    it("harvest filled, no stationaryUpgrader but upgrade minimum met (≥1 upgrader) → 'upgrade'", () => {
+    it("harvest filled, no stationaryUpgrader but upgrade minimum met (≥1 upgrader), creep has energy → 'upgrade'", () => {
       const creep = makeCreep({
         body: WORKER_BODY,
+        energyCarried: 50,
         roomEnergyAvailable: 200,
         roomEnergyCapacity: 300
       });
@@ -321,6 +340,7 @@ describe("evaluateTask (body-aware dispatch)", () => {
     it("non-harvest task clears sourceId from creep memory", () => {
       const creep = makeCreep({
         body: WORKER_BODY,
+        energyCarried: 50,
         roomEnergyAvailable: 200,
         roomEnergyCapacity: 300,
         sourceId: "some-source"

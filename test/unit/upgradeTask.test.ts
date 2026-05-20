@@ -8,14 +8,9 @@ describe("runUpgradeTask", () => {
     global.Game = _.clone(Game);
     // @ts-ignore
     global.Memory = _.clone(Memory);
-    (global as any).FIND_SOURCES_ACTIVE = 3;
     (global as any).RESOURCE_ENERGY = "energy";
     (global as any).ERR_NOT_IN_RANGE = -9;
   });
-
-  // -------------------------------------------------------------------------
-  // Creep has energy — upgrading branch
-  // -------------------------------------------------------------------------
 
   it("returns false and upgrades the controller when creep has energy", () => {
     const controller = { id: "controller1" };
@@ -23,11 +18,8 @@ describe("runUpgradeTask", () => {
 
     const creep = {
       memory: {},
-      store: { getUsedCapacity: (): number => 10, getFreeCapacity: (): number => 0 },
-      room: { controller, storage: undefined },
-      pos: { findClosestByRange: (): null => null },
-      withdraw: (): number => 0,
-      harvest: (): number => 0,
+      store: { getUsedCapacity: (): number => 10 },
+      room: { controller },
       upgradeController: (target: object): number => {
         upgradeTarget = target;
         return 0;
@@ -47,11 +39,8 @@ describe("runUpgradeTask", () => {
 
     const creep = {
       memory: {},
-      store: { getUsedCapacity: (): number => 10, getFreeCapacity: (): number => 0 },
-      room: { controller, storage: undefined },
-      pos: { findClosestByRange: (): null => null },
-      withdraw: (): number => 0,
-      harvest: (): number => 0,
+      store: { getUsedCapacity: (): number => 10 },
+      room: { controller },
       upgradeController: (): number => (global as any).ERR_NOT_IN_RANGE,
       moveTo: (target: object): number => {
         moveTarget = target;
@@ -64,250 +53,33 @@ describe("runUpgradeTask", () => {
     assert.strictEqual(moveTarget, controller);
   });
 
-  it("returns true (complete) when creep has energy but no controller exists", () => {
+  it("returns true and clears obtainedFromId when creep store is empty", () => {
     const creep = {
-      memory: {},
-      store: { getUsedCapacity: (): number => 10, getFreeCapacity: (): number => 0 },
-      room: { controller: undefined, storage: undefined },
-      pos: { findClosestByRange: (): null => null },
-      withdraw: (): number => 0,
-      harvest: (): number => 0,
-      upgradeController: (): number => 0,
-      moveTo: (): number => 0
-    };
-
-    assert.isTrue(runUpgradeTask(creep as any));
-  });
-
-  it("upgrades with partial energy when no source is available rather than idling", () => {
-    const controller = { id: "controller1" };
-    let upgradeTarget: object | null = null;
-
-    const creep = {
-      memory: {},
-      store: { getUsedCapacity: (): number => 5, getFreeCapacity: (): number => 45 },
-      room: { controller, storage: undefined },
-      pos: { findClosestByRange: (): null => null },
-      withdraw: (): number => 0,
-      harvest: (): number => 0,
-      upgradeController: (target: object): number => {
-        upgradeTarget = target;
-        return 0;
-      },
-      moveTo: (): number => 0
-    };
-
-    const done = runUpgradeTask(creep as any);
-
-    assert.isFalse(done);
-    assert.strictEqual(upgradeTarget, controller);
-  });
-
-  it("continues upgrading on subsequent ticks after partial energy use (flag prevents re-entering gather phase)", () => {
-    const controller = { id: "controller1" };
-    let upgradeTarget: object | null = null;
-
-    // Simulate tick 2: creep spent 1 energy on tick 1 (was full → flag set to false),
-    // now has 49/50 — neither full nor empty, so no transition fires.
-    const creep = {
-      memory: { upgradeGathering: false },
-      store: { getUsedCapacity: (): number => 49, getFreeCapacity: (): number => 1 },
-      room: { controller, storage: undefined },
-      pos: { findClosestByRange: (): null => null },
-      withdraw: (): number => 0,
-      harvest: (): number => 0,
-      upgradeController: (target: object): number => {
-        upgradeTarget = target;
-        return 0;
-      },
-      moveTo: (): number => 0
-    };
-
-    const done = runUpgradeTask(creep as any);
-
-    assert.isFalse(done);
-    assert.strictEqual(upgradeTarget, controller);
-    assert.isFalse((creep.memory as any).upgradeGathering);
-  });
-
-  // -------------------------------------------------------------------------
-  // Creep is empty — energy gathering branch
-  // -------------------------------------------------------------------------
-
-  it("withdraws from storage when empty and storage has energy", () => {
-    const storage = { id: "storage1", store: { getUsedCapacity: (): number => 50 } };
-    let withdrawTarget: object | null = null;
-    let withdrawResource: ResourceConstant | null = null;
-
-    const creep = {
-      memory: {},
-      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
-      room: {
-        controller: { id: "controller1" },
-        storage
-      },
-      pos: { findClosestByRange: (): null => null },
-      withdraw: (target: object, resource: ResourceConstant): number => {
-        withdrawTarget = target;
-        withdrawResource = resource;
-        return 0;
-      },
-      harvest: (): number => 0,
+      memory: { obtainedFromId: "some-container" } as any,
+      store: { getUsedCapacity: (): number => 0 },
+      room: { controller: { id: "c1" } },
       upgradeController: (): number => 0,
       moveTo: (): number => 0
     };
 
     const done = runUpgradeTask(creep as any);
 
-    assert.isFalse(done);
-    assert.strictEqual(withdrawTarget, storage);
-    assert.equal(withdrawResource, (global as any).RESOURCE_ENERGY);
+    assert.isTrue(done);
+    assert.isUndefined(creep.memory.obtainedFromId);
   });
 
-  it("moves to storage when withdraw returns ERR_NOT_IN_RANGE", () => {
-    const storage = { id: "storage1", store: { getUsedCapacity: (): number => 50 } };
-    let moveTarget: object | null = null;
-
+  it("returns true and clears obtainedFromId when room has no controller", () => {
     const creep = {
-      memory: {},
-      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
-      room: { controller: { id: "controller1" }, storage },
-      pos: { findClosestByRange: (): null => null },
-      withdraw: (): number => (global as any).ERR_NOT_IN_RANGE,
-      harvest: (): number => 0,
-      upgradeController: (): number => 0,
-      moveTo: (target: object): number => {
-        moveTarget = target;
-        return 0;
-      }
-    };
-
-    runUpgradeTask(creep as any);
-
-    assert.strictEqual(moveTarget, storage);
-  });
-
-  it("falls back to harvesting an active source when storage is unavailable", () => {
-    const source = { id: "source1" };
-    let harvestTarget: object | null = null;
-
-    const creep = {
-      memory: {},
-      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
-      room: { controller: { id: "controller1" }, storage: undefined },
-      pos: { findClosestByRange: (): object => source },
-      withdraw: (): number => 0,
-      harvest: (target: object): number => {
-        harvestTarget = target;
-        return 0;
-      },
+      memory: { obtainedFromId: "some-container" } as any,
+      store: { getUsedCapacity: (): number => 10 },
+      room: { controller: undefined },
       upgradeController: (): number => 0,
       moveTo: (): number => 0
     };
 
     const done = runUpgradeTask(creep as any);
 
-    assert.isFalse(done);
-    assert.strictEqual(harvestTarget, source);
-  });
-
-  it("falls back to harvesting when storage exists but has no energy", () => {
-    const source = { id: "source1" };
-    let withdrawCalls = 0;
-    let harvestTarget: object | null = null;
-
-    const creep = {
-      memory: {},
-      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
-      room: {
-        controller: { id: "controller1" },
-        storage: { id: "storage1", store: { getUsedCapacity: (): number => 0 } }
-      },
-      pos: { findClosestByRange: (): object => source },
-      withdraw: (): number => {
-        withdrawCalls++;
-        return 0;
-      },
-      harvest: (target: object): number => {
-        harvestTarget = target;
-        return 0;
-      },
-      upgradeController: (): number => 0,
-      moveTo: (): number => 0
-    };
-
-    runUpgradeTask(creep as any);
-
-    assert.equal(withdrawCalls, 0);
-    assert.strictEqual(harvestTarget, source);
-  });
-
-  it("moves to source when harvest returns ERR_NOT_IN_RANGE", () => {
-    const source = { id: "source1" };
-    let moveTarget: object | null = null;
-
-    const creep = {
-      memory: {},
-      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
-      room: { controller: { id: "controller1" }, storage: undefined },
-      pos: { findClosestByRange: (): object => source },
-      withdraw: (): number => 0,
-      harvest: (): number => (global as any).ERR_NOT_IN_RANGE,
-      upgradeController: (): number => 0,
-      moveTo: (target: object): number => {
-        moveTarget = target;
-        return 0;
-      }
-    };
-
-    runUpgradeTask(creep as any);
-
-    assert.strictEqual(moveTarget, source);
-  });
-
-  it("returns true (complete) when empty and no active source or storage exists", () => {
-    let upgradeCalls = 0;
-
-    const creep = {
-      memory: {},
-      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
-      room: { controller: { id: "controller1" }, storage: undefined },
-      pos: { findClosestByRange: (): null => null },
-      withdraw: (): number => 0,
-      harvest: (): number => 0,
-      upgradeController: (): number => {
-        upgradeCalls++;
-        return 0;
-      },
-      moveTo: (): number => 0
-    };
-
-    assert.isTrue(runUpgradeTask(creep as any));
-    assert.equal(upgradeCalls, 0);
-  });
-
-  it("harvests from pinned sourceId when set, ignoring findClosestByRange", () => {
-    const pinnedSource = { id: "pinned-src" };
-    let harvestTarget: object | null = null;
-    let findClosestCalls = 0;
-
-    (global as any).Game.getObjectById = (id: string): object | null =>
-      id === "pinned-src" ? pinnedSource : null;
-
-    const creep = {
-      memory: { role: "upgrader", room: "W1N1", sourceId: "pinned-src" },
-      store: { getUsedCapacity: (): number => 0, getFreeCapacity: (): number => 50 },
-      room: { controller: { id: "c1" }, storage: undefined },
-      pos: { findClosestByRange: (): null => { findClosestCalls++; return null; } },
-      withdraw: (): number => 0,
-      harvest: (t: object): number => { harvestTarget = t; return 0; },
-      upgradeController: (): number => 0,
-      moveTo: (): number => 0
-    };
-
-    runUpgradeTask(creep as any);
-
-    assert.strictEqual(harvestTarget, pinnedSource);
-    assert.equal(findClosestCalls, 0);
+    assert.isTrue(done);
+    assert.isUndefined(creep.memory.obtainedFromId);
   });
 });

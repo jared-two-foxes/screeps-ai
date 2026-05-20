@@ -54,14 +54,17 @@ export const evaluateTask = (creep: Creep, slots: RoomSlots): TaskType => {
     return "harvest";
   }
 
-  // Slot fill
+  const hasEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
+
+  // Slot fill — always route empty workers to harvest first
   const harvestCount = slots.taskCounts.harvest ?? 0;
-  if (harvestCount < slots.economyTarget) {
+  if (!hasEnergy || harvestCount < slots.economyTarget) {
     const sources = creep.room.find(FIND_SOURCES) ;
     assignHarvestSource(creep, sources);
     return "harvest";
   }
 
+  // Worker has energy — assign a work task
   if (!slots.hasActiveStationaryUpgrader && (slots.taskCounts.upgrade ?? 0) < 1) {
     delete creep.memory.sourceId;
     return "upgrade";

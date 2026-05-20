@@ -25,6 +25,6 @@ declare global {
     room: string;
     task?: TaskType;
     sourceId?: Id<Source>;
-    upgradeGathering?: boolean;
+    obtainedFromId?: Id<StructureContainer>;
   }
 }
