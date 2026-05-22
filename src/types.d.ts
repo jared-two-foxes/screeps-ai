@@ -44,8 +44,14 @@ declare global {
     hasRepairTargets: boolean;
   }
 
+  interface SourceContainerInfo {
+    containerId: Id<StructureContainer>;
+    harvestDepositTileCount: number;
+  }
+
   interface TickContext {
     slots: RoomSlots;
     repairAllocations: Record<string, number>;
+    sourceContainerMap: Record<string, SourceContainerInfo>;
   }
 }

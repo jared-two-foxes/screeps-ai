@@ -15,7 +15,7 @@ import { runUpgradeFromContainerTask } from "tasks/upgradeFromContainer";
 export const runTask = (creep: Creep, ctx: TickContext): boolean => {
   switch (creep.memory.task) {
     case "harvest":
-      return runHarvestTask(creep);
+      return runHarvestTask(creep, ctx);
     case "deposit":
       return runDepositTask(creep);
     case "upgrade":

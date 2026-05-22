@@ -24,6 +24,31 @@ const assignHarvestSource = (creep: Creep, sources: Source[]): void => {
   }
 };
 
+/** Build a map of how many harvesters are currently assigned per source. */
+const buildHarvesterCountBySource = (): Record<string, number> => {
+  const counts: Record<string, number> = {};
+  for (const c of Object.values(Game.creeps)) {
+    if (c.memory.task === "harvest" && c.memory.sourceId != null) {
+      const sid = c.memory.sourceId;
+      counts[sid] = (counts[sid] ?? 0) + 1;
+    }
+  }
+  return counts;
+};
+
+/**
+ * Filter sources to only those with open harvest-deposit slots.
+ * Container sources are capped at harvestDepositTileCount; non-container sources are always eligible.
+ */
+const filterAvailableSources = (sources: Source[], ctx: TickContext): Source[] => {
+  const harvesterCountBySource = buildHarvesterCountBySource();
+  return sources.filter(source => {
+    const info = ctx.sourceContainerMap[source.id];
+    if (info == null) return true; // no container → always eligible
+    return (harvesterCountBySource[source.id] ?? 0) < info.harvestDepositTileCount;
+  });
+};
+
 export const evaluateTask = (creep: Creep, ctx: TickContext): TaskType => {
   const slots = ctx.slots;
   const classify = classifyBody(creep);
@@ -44,7 +69,12 @@ export const evaluateTask = (creep: Creep, ctx: TickContext): TaskType => {
   if (ratio < EMERGENCY_THRESHOLD) {
     if (creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0) return "deposit";
     const sources = creep.room.find(FIND_SOURCES_ACTIVE);
-    assignHarvestSource(creep, sources);
+    const available = filterAvailableSources(sources, ctx);
+    if (available.length === 0) {
+      delete creep.memory.sourceId;
+      return "forage";
+    }
+    assignHarvestSource(creep, available);
     return "harvest";
   }
 
@@ -54,7 +84,12 @@ export const evaluateTask = (creep: Creep, ctx: TickContext): TaskType => {
   const harvestCount = slots.taskCounts.harvest ?? 0;
   if (!hasEnergy || harvestCount < slots.economyTarget) {
     const sources = creep.room.find(FIND_SOURCES);
-    assignHarvestSource(creep, sources);
+    const available = filterAvailableSources(sources, ctx);
+    if (available.length === 0) {
+      delete creep.memory.sourceId;
+      return "forage";
+    }
+    assignHarvestSource(creep, available);
     return "harvest";
   }
 

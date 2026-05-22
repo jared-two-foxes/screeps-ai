@@ -60,7 +60,7 @@ const makeSlots = (opts: {
   hasRepairTargets: opts.hasRepairTargets ?? false
 });
 
-const makeCtx = (slots: any): any => ({ slots, repairAllocations: {} });
+const makeCtx = (slots: any, sourceContainerMap: Record<string, any> = {}): any => ({ slots, repairAllocations: {}, sourceContainerMap });
 
 // ---------------------------------------------------------------------------
 // Creep factory
@@ -279,11 +279,14 @@ describe("evaluateTask (body-aware dispatch)", () => {
     });
 
     it("harvest slot filled, creep has NO energy → 'harvest' (single-phase: refill first)", () => {
+      const source = { id: "src-bare", pos: { findInRange: (): object[] => [] } };
+      (global as any).Game.creeps = {};
       const creep = makeCreep({
         body: WORKER_BODY,
         energyCarried: 0,
         roomEnergyAvailable: 200,
-        roomEnergyCapacity: 300
+        roomEnergyCapacity: 300,
+        sources: [source]
       });
       const slots = makeSlots({
         economyTarget: 1,
@@ -356,6 +359,68 @@ describe("evaluateTask (body-aware dispatch)", () => {
       });
       evaluateTask(creep, makeCtx(slots));
       assert.isUndefined(creep.memory.sourceId, "sourceId should be cleared when not harvesting");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Container slot filtering
+  // -------------------------------------------------------------------------
+
+  describe("container slot filtering", () => {
+    it("worker needs energy; source has container, slot open → returns 'harvest'", () => {
+      const source = { id: "src-cont", pos: { findInRange: (): object[] => [] } };
+      (global as any).Game.creeps = {}; // 0 harvesters assigned
+      const creep = makeCreep({
+        body: WORKER_BODY,
+        energyCarried: 0,
+        roomEnergyAvailable: 200,
+        roomEnergyCapacity: 300,
+        sources: [source]
+      });
+      const slots = makeSlots({ economyTarget: 1, taskCounts: { harvest: 0 } });
+      const sourceContainerMap = { "src-cont": { containerId: "cont1", harvestDepositTileCount: 2 } };
+      assert.equal(evaluateTask(creep, makeCtx(slots, sourceContainerMap)), "harvest");
+    });
+
+    it("worker needs energy; source has container, all slots filled → returns 'forage'", () => {
+      const source = { id: "src-cont", pos: { findInRange: (): object[] => [] } };
+      // 2 harvesters already assigned to src-cont (harvestDepositTileCount: 2 → full)
+      (global as any).Game.creeps = {
+        H1: { memory: { task: "harvest", sourceId: "src-cont", room: "W1N1" } },
+        H2: { memory: { task: "harvest", sourceId: "src-cont", room: "W1N1" } }
+      };
+      const creep = makeCreep({
+        body: WORKER_BODY,
+        energyCarried: 0,
+        roomEnergyAvailable: 200,
+        roomEnergyCapacity: 300,
+        sources: [source]
+      });
+      const slots = makeSlots({ economyTarget: 1, taskCounts: { harvest: 2 } });
+      const sourceContainerMap = { "src-cont": { containerId: "cont1", harvestDepositTileCount: 2 } };
+      assert.equal(evaluateTask(creep, makeCtx(slots, sourceContainerMap)), "forage");
+    });
+
+    it("worker needs energy; container source full, non-container source available → returns 'harvest' on non-container source", () => {
+      const srcCont = { id: "src-cont", pos: { findInRange: (): object[] => [] } };
+      const srcBare = { id: "src-bare", pos: { findInRange: (): object[] => [] } };
+      // Container source is full (2/2 slots)
+      (global as any).Game.creeps = {
+        H1: { memory: { task: "harvest", sourceId: "src-cont", room: "W1N1" } },
+        H2: { memory: { task: "harvest", sourceId: "src-cont", room: "W1N1" } }
+      };
+      const creep = makeCreep({
+        body: WORKER_BODY,
+        energyCarried: 0,
+        roomEnergyAvailable: 200,
+        roomEnergyCapacity: 300,
+        sources: [srcCont, srcBare]
+      });
+      const slots = makeSlots({ economyTarget: 2, taskCounts: { harvest: 2 } });
+      const sourceContainerMap = { "src-cont": { containerId: "cont1", harvestDepositTileCount: 2 } };
+      const result = evaluateTask(creep, makeCtx(slots, sourceContainerMap));
+      assert.equal(result, "harvest");
+      assert.equal(creep.memory.sourceId, "src-bare", "should pin to the non-container source");
     });
   });
 });

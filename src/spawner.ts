@@ -45,6 +45,8 @@ interface RoomContext {
   stationaryBySource: Record<string, number>;
   /** Count of non-wall adjacent tiles per source.id (physical creep cap). */
   walkableTilesBySource: Record<string, number>;
+  /** Count of Chebyshev-intersection harvest-deposit tiles per container source.id. */
+  harvestDepositTilesBySource: Record<string, number>;
 }
 
 interface SpawnQueueRole {
@@ -253,6 +255,24 @@ export const countWalkableAdjacentTiles = (room: Room, source: Source): number =
   return count;
 };
 
+export const countHarvestDepositTiles = (room: Room, source: Source, container: StructureContainer): number => {
+  const terrain = room.getTerrain();
+  let count = 0;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const x = source.pos.x + dx;
+      const y = source.pos.y + dy;
+      if (dx === 0 && dy === 0) continue; // source tile itself
+      if (x === container.pos.x && y === container.pos.y) continue; // container tile
+      if (x < 0 || x > 49 || y < 0 || y > 49) continue;
+      if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
+      // Must be within range 1 of the container (Chebyshev intersection)
+      if (Math.max(Math.abs(x - container.pos.x), Math.abs(y - container.pos.y)) <= 1) count++;
+    }
+  }
+  return count;
+};
+
 const buildRoomContext = (room: Room): RoomContext => {
   const sources = room.find(FIND_SOURCES);
   const workerBody = selectWorkerBody(room);
@@ -279,6 +299,18 @@ const buildRoomContext = (room: Room): RoomContext => {
     walkableTilesBySource[source.id] = countWalkableAdjacentTiles(room, source);
   }
 
+  const harvestDepositTilesBySource: Record<string, number> = {};
+  for (const source of sources) {
+    if (!containerSourceIds.has(source.id)) continue;
+    const adjacent: AnyStructure[] = source.pos.findInRange(FIND_STRUCTURES, 1);
+    const container = adjacent.find(
+      (s: AnyStructure) => s.structureType === STRUCTURE_CONTAINER
+    ) as StructureContainer | undefined;
+    if (container != null) {
+      harvestDepositTilesBySource[source.id] = countHarvestDepositTiles(room, source, container);
+    }
+  }
+
   return {
     room,
     sources,
@@ -291,7 +323,8 @@ const buildRoomContext = (room: Room): RoomContext => {
     upgradersPerSource: buildUpgradersPerSource(room.name),
     containerSourceIds,
     stationaryBySource: buildStationaryBySource(room.name),
-    walkableTilesBySource
+    walkableTilesBySource,
+    harvestDepositTilesBySource
   };
 };
 
@@ -314,8 +347,11 @@ const pickLeastSaturatedSource = (
     const cap = effectiveCaps[source.id] ?? SOURCE_WORK_SATURATION;
     const assigned = ctx.assignedWorkBySource[source.id] ?? 0;
     if (assigned >= cap) continue;
-    // Physical tile cap: never assign more creeps than walkable adjacent tiles.
-    const tileCap = ctx.walkableTilesBySource[source.id] ?? 8;
+    // Physical tile cap: for container sources use the intersection tile count;
+    // for non-container sources use all walkable adjacent tiles.
+    const tileCap = ctx.containerSourceIds.has(source.id)
+      ? (ctx.harvestDepositTilesBySource[source.id] ?? 1)
+      : (ctx.walkableTilesBySource[source.id] ?? 8);
     const creepCount = ctx.assignedCreepCountBySource[source.id] ?? 0;
     if (creepCount >= tileCap) continue;
     const saturation = assigned / Math.max(cap, 1);
@@ -532,7 +568,9 @@ const containerQueue: SpawnQueueRole[] = [
         const workCap = ctx.containerSourceIds.has(source.id)
           ? SOURCE_WORK_SATURATION
           : (ctx.neededWorkCapPerSource[source.id] ?? SOURCE_WORK_SATURATION);
-        const tileCap = ctx.walkableTilesBySource[source.id] ?? 8;
+        const tileCap = ctx.containerSourceIds.has(source.id)
+          ? (ctx.harvestDepositTilesBySource[source.id] ?? 1)
+          : (ctx.walkableTilesBySource[source.id] ?? 8);
         return sum + Math.min(Math.ceil(workCap / workPerCreep), tileCap);
       }, 0);
     },

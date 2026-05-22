@@ -80,6 +80,38 @@ export const loop = ErrorMapper.wrapLoop(() => {
     if (id != null) repairAllocations[id] = (repairAllocations[id] ?? 0) + 1;
   }
 
+  // Pre-compute per-room sourceContainerMap: for each source with an adjacent built container,
+  // record the container id and the number of Chebyshev-intersection harvest-deposit tiles.
+  const sourceContainerMap: Record<string, SourceContainerInfo> = {};
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    const terrain = room.getTerrain();
+    for (const source of room.find(FIND_SOURCES)) {
+      const adjacent: AnyStructure[] = source.pos.findInRange(FIND_STRUCTURES, 1);
+      const container = adjacent.find(
+        (s: AnyStructure) => s.structureType === STRUCTURE_CONTAINER
+      ) as StructureContainer | undefined;
+      if (container == null) continue;
+      let count = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const x = source.pos.x + dx;
+          const y = source.pos.y + dy;
+          if (dx === 0 && dy === 0) continue; // source tile itself
+          if (x === container.pos.x && y === container.pos.y) continue; // container tile
+          if (x < 0 || x > 49 || y < 0 || y > 49) continue;
+          if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
+          // Must also be within range 1 of the container (Chebyshev intersection)
+          if (Math.max(Math.abs(x - container.pos.x), Math.abs(y - container.pos.y)) <= 1) count++;
+        }
+      }
+      sourceContainerMap[source.id] = {
+        containerId: container.id,
+        harvestDepositTileCount: count
+      };
+    }
+  }
+
   for (const creepName in Game.creeps) {
     const creep = Game.creeps[creepName];
     const taskCounts = roomTaskCounts[creep.memory.room] ?? {};
@@ -90,7 +122,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
       hasActiveStationaryUpgrader: (taskCounts.upgradeFromContainer ?? 0) > 0,
       hasRepairTargets: roomHasRepairTargets[creep.memory.room] ?? false
     };
-    const ctx: TickContext = { slots, repairAllocations };
+    const ctx: TickContext = { slots, repairAllocations, sourceContainerMap };
 
     if (creep.memory.task == null) {
       creep.memory.task = evaluateTask(creep, ctx);

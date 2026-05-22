@@ -41,7 +41,7 @@ const bareSource = (id: string, x: number, y: number): any => ({
 
 const sourceWithContainer = (id: string, x: number, y: number): any => ({
   id,
-  pos: makePos(x, y, "W1N1", [{ structureType: "container" }])
+  pos: makePos(x, y, "W1N1", [{ structureType: "container", id: `cont-${id}`, pos: { x: x + 1, y } }])
 });
 
 const makeHarvester = (room: string, sourceId: string): any => ({
@@ -1053,4 +1053,101 @@ describe("spawner (Track A scaffold)", () => {
       assert.equal((countFn as any)(room, source), 0);
     });
   });
-});  // end describe("spawner (Track A scaffold)")
+  // ─── countHarvestDepositTiles unit tests ─────────────────────────────────
+  describe("countHarvestDepositTiles", () => {
+    it("exports countHarvestDepositTiles as a function", () => {
+      assert.isFunction((spawnerModule as any).countHarvestDepositTiles);
+    });
+
+    it("container placed east of source — counts tiles in Chebyshev intersection", () => {
+      // Source at (10,10), container at (11,10).
+      // Tiles in range 1 of source (excluding source itself): (9,9),(10,9),(11,9),(9,10),(11,10),(9,11),(10,11),(11,11)
+      // Exclude container tile (11,10).
+      // Tiles also in range 1 of container (11,10): (10,9),(11,9),(12,9),(10,10),(12,10),(10,11),(11,11),(12,11)
+      // Intersection (excluding source and container): (10,9),(11,9),(10,11),(11,11) → 4 tiles (no walls)
+      const countFn = (spawnerModule as any).countHarvestDepositTiles;
+      const source = { id: "s1", pos: { x: 10, y: 10 } };
+      const container = { id: "c1", pos: { x: 11, y: 10 } };
+      const room = { getTerrain: (): any => ({ get: (): number => 0 }) };
+      const result = countFn(room, source, container);
+      assert.equal(result, 4, "should count 4 intersection tiles when no walls");
+    });
+
+    it("walls reduce the count", () => {
+      // Source at (10,10), container at (11,10).
+      // Wall at (10,9) and (11,9) → 2 of the 4 intersection tiles are walls → count = 2
+      const countFn = (spawnerModule as any).countHarvestDepositTiles;
+      const source = { id: "s1", pos: { x: 10, y: 10 } };
+      const container = { id: "c1", pos: { x: 11, y: 10 } };
+      const walls = new Set(["10,9", "11,9"]);
+      const room = {
+        getTerrain: (): any => ({
+          get: (x: number, y: number): number =>
+            walls.has(`${x},${y}`) ? (global as any).TERRAIN_MASK_WALL : 0
+        })
+      };
+      const result = countFn(room, source, container);
+      assert.equal(result, 2, "should count 2 intersection tiles when 2 are walls");
+    });
+
+    it("container at NE corner of source — counts only shared corner tile", () => {
+      // Source at (10,10), container at (11,9).
+      // Tiles in range 1 of source (excl source, excl container): (9,9),(10,9),(9,10),(11,10),(9,11),(10,11),(11,11)
+      // Tiles in range 1 of container (11,9): (10,8),(11,8),(12,8),(10,9),(12,9),(10,10),(11,10),(12,10)
+      // Intersection: (10,9),(11,10) → 2 tiles (no walls)
+      const countFn = (spawnerModule as any).countHarvestDepositTiles;
+      const source = { id: "s1", pos: { x: 10, y: 10 } };
+      const container = { id: "c1", pos: { x: 11, y: 9 } };
+      const room = { getTerrain: (): any => ({ get: (): number => 0 }) };
+      const result = countFn(room, source, container);
+      assert.equal(result, 2, "should count 2 intersection tiles for NE corner placement");
+    });
+
+    it("returns 0 when all intersection tiles are walls", () => {
+      const countFn = (spawnerModule as any).countHarvestDepositTiles;
+      const source = { id: "s1", pos: { x: 10, y: 10 } };
+      const container = { id: "c1", pos: { x: 11, y: 10 } };
+      const room = { getTerrain: (): any => ({ get: (): number => (global as any).TERRAIN_MASK_WALL }) };
+      const result = countFn(room, source, container);
+      assert.equal(result, 0, "should return 0 when all tiles are walls");
+    });
+  });
+
+  // ─── containerQueue uses harvestDepositTilesBySource ─────────────────────
+  describe("containerQueue uses harvestDepositTilesBySource for tile cap", () => {
+    it("caps container-source harvester count at harvestDepositTileCount, not walkable tile count", () => {
+      // Source at (10,10) with container at (11,10).
+      // All tiles walkable → walkableTilesBySource = 8, harvestDepositTilesBySource = 4.
+      // With 4 harvesters already present the spawner should move to hauler (not spawn a 5th harvester).
+      const srcA: any = {
+        id: "src-a",
+        pos: {
+          x: 10,
+          y: 10,
+          findInRange: (constant: number): any[] => {
+            if (constant === (global as any).FIND_STRUCTURES) {
+              return [{ structureType: "container", id: "cont-a", pos: { x: 11, y: 10 } }];
+            }
+            return [];
+          }
+        }
+      };
+      const spawn = createMockSpawn({ energyCapacityAvailable: 300, sources: [srcA] });
+      spawn.room.getTerrain = (): any => ({ get: (): number => 0 }); // no walls
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.creeps = {
+        H1: makeHarvester("W1N1", "src-a"),
+        H2: makeHarvester("W1N1", "src-a"),
+        H3: makeHarvester("W1N1", "src-a"),
+        H4: makeHarvester("W1N1", "src-a")
+      };
+
+      runSpawner();
+
+      // harvestDepositTileCount = 4 → already have 4 → next role is hauler
+      assert.isAtLeast(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "hauler",
+        "harvester slot should be full at harvestDepositTileCount (4); spawner should move to hauler");
+    });
+  });
+});

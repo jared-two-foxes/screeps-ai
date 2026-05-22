@@ -14,7 +14,8 @@ const makeCtx = (allocations: Record<string, number> = {}): TickContext => ({
     hasActiveStationaryUpgrader: false,
     hasRepairTargets: true
   },
-  repairAllocations: allocations
+  repairAllocations: allocations,
+  sourceContainerMap: {}
 });
 
 const makeStructure = (id: string, hits: number, hitsMax: number): any => ({
