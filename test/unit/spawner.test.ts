@@ -304,10 +304,35 @@ describe("spawner (Track A scaffold)", () => {
       assert.deepEqual(spawnUpgrader.calls[0].body, ["work", "carry", "move", "work", "carry", "move"]);
     });
 
-    it("caps harvester count at SOURCE_WORK_SATURATION (5) regardless of source distance", () => {
+    it("caps harvester targetCount at walkable tile count when tiles < WORK-derived target", () => {
+      // Source at close range (distance 0) → WORK-derived target = ceil(5/1) = 5.
+      // But only 2 walkable tiles exist → targetCount should be 2, not 5.
+      // With 2 harvesters already present the spawner should skip to builder.
+      const srcA = bareSource("src-a", 10, 10);
+      const wallsAroundA = new Set(["9,9", "10,9", "11,9", "9,11", "10,11", "11,11"]);
+      const spawn = createMockSpawn({ energyCapacityAvailable: 300, sources: [srcA] });
+      spawn.room.getTerrain = (): any => ({
+        get: (x: number, y: number): number =>
+          wallsAroundA.has(`${x},${y}`) ? (global as any).TERRAIN_MASK_WALL : 0
+      });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.creeps = {
+        H1: makeHarvester("W1N1", "src-a"),
+        H2: makeHarvester("W1N1", "src-a")
+      };
+
+      runSpawner();
+
+      // targetCount = min(5, 2) = 2; already have 2 → next role is builder
+      assert.isAtLeast(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "builder",
+        "harvester slot should be full at tile cap (2); spawner should move to builder");
+    });
+
+    it("caps harvester count at walkable tile count (8) for a distant source", () => {
       // Distance-formula raw target for a path-length-30 source would be 23, but the
-      // hard cap of SOURCE_WORK_SATURATION (5) applies.  With 5 harvesters already
-      // present the spawner should consider the source saturated and spawn a builder.
+      // tile cap (8 walkable tiles in mock terrain) bounds it to 8.
+      // With 8 harvesters already present the spawner considers the source saturated and spawns a builder.
       const spawn = createMockSpawn({ energyCapacityAvailable: 300, sources: [bareSource("src-a", 30, 30)] });
       (global as any).Game.spawns = { Spawn1: spawn };
       (global as any).PathFinder.search = () => ({ path: new Array(30).fill({}), incomplete: false });
@@ -316,7 +341,10 @@ describe("spawner (Track A scaffold)", () => {
         H2: makeHarvester("W1N1", "src-a"),
         H3: makeHarvester("W1N1", "src-a"),
         H4: makeHarvester("W1N1", "src-a"),
-        H5: makeHarvester("W1N1", "src-a")
+        H5: makeHarvester("W1N1", "src-a"),
+        H6: makeHarvester("W1N1", "src-a"),
+        H7: makeHarvester("W1N1", "src-a"),
+        H8: makeHarvester("W1N1", "src-a")
       };
 
       runSpawner();
@@ -385,6 +413,31 @@ describe("spawner (Track A scaffold)", () => {
 
       assert.equal(spawn.calls.length, 1);
       assert.equal(spawn.calls[0].memory?.role, "hauler");
+    });
+
+    it("containerQueue caps harvester targetCount at walkable tile count when tiles < WORK-derived target", () => {
+      // Container source with only 2 walkable tiles.
+      // SOURCE_WORK_SATURATION = 5, but tile cap = 2 → targetCount should be 2.
+      // With 2 harvesters already present the spawner should move to hauler.
+      const srcA = sourceWithContainer("src-a", 10, 10);
+      const wallsAroundA = new Set(["9,9", "10,9", "11,9", "9,11", "10,11", "11,11"]);
+      const spawn = createMockSpawn({ energyCapacityAvailable: 300, sources: [srcA] });
+      spawn.room.getTerrain = (): any => ({
+        get: (x: number, y: number): number =>
+          wallsAroundA.has(`${x},${y}`) ? (global as any).TERRAIN_MASK_WALL : 0
+      });
+      (global as any).Game.spawns = { Spawn1: spawn };
+      (global as any).Game.creeps = {
+        H1: makeHarvester("W1N1", "src-a"),
+        H2: makeHarvester("W1N1", "src-a")
+      };
+
+      runSpawner();
+
+      // targetCount = min(5, 2) = 2; already have 2 → next role is hauler
+      assert.isAtLeast(spawn.calls.length, 1);
+      assert.equal(spawn.calls[0].memory?.role, "hauler",
+        "harvester slot should be full at tile cap (2); spawner should move to hauler");
     });
   });
 

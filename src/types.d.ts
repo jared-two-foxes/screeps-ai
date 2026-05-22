@@ -1,7 +1,7 @@
 export {};
 
 declare global {
-  type TaskType = "harvest" | "deposit" | "upgrade" | "harvestAndDeposit" | "forage" | "build" | "upgradeFromContainer";
+  type TaskType = "harvest" | "deposit" | "upgrade" | "harvestAndDeposit" | "forage" | "build" | "upgradeFromContainer" | "repair";
 
   interface RoomStats {
     totalCreeps: number;
@@ -32,5 +32,20 @@ declare global {
     forageTargetId?: Id<StructureContainer | Resource>;
     /** Cached construction site target — cleared on task completion or when site is gone. */
     buildSiteId?: Id<ConstructionSite>;
+    /** Cached repair target — cleared when fully repaired, gone, or energy runs out. */
+    repairTargetId?: Id<AnyStructure>;
+  }
+
+  interface RoomSlots {
+    taskCounts: Partial<Record<string, number>>;
+    economyTarget: number;
+    hasBuildSites: boolean;
+    hasActiveStationaryUpgrader: boolean;
+    hasRepairTargets: boolean;
+  }
+
+  interface TickContext {
+    slots: RoomSlots;
+    repairAllocations: Record<string, number>;
   }
 }

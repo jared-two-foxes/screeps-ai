@@ -3,9 +3,10 @@ import { updateStats } from "utils/stats";
 import { evaluateTask } from "tasks/evaluator";
 import { runTask } from "tasks/runner";
 import { clearDistanceCache, runSpawner } from "spawner";
-import { computeExtensionPlan } from "tasks/build";
+import { computeExtensionPlan, ensureSourceContainerSites, placeExtensionSites } from "tasks/build";
 
 const DISTANCE_CACHE_CLEAR_INTERVAL = 1000;
+const REPAIR_THRESHOLD = 0.75;
 
 // When compiling TS to JS and bundling with rollup, the line numbers and file names in error messages change
 // This utility uses source maps to get the line numbers and file names of the original, TS source code
@@ -37,6 +38,11 @@ export const loop = ErrorMapper.wrapLoop(() => {
     if (stored == null || stored.rcl !== room.controller.level) {
       computeExtensionPlan(room);
     }
+    // Ensure source containers and extensions are always queued for construction,
+    // even when no creep is currently assigned the "build" task. This guarantees
+    // destroyed or missing structures are re-queued unconditionally each tick.
+    ensureSourceContainerSites(room);
+    placeExtensionSites(room);
   }
 
   // Pre-compute per-room task counts once per tick (avoids O(N²) per-creep inner loop)
@@ -57,26 +63,45 @@ export const loop = ErrorMapper.wrapLoop(() => {
     roomEconomyTargets[roomName] = room.find(FIND_SOURCES).length;
   }
 
+  // Pre-compute per-room repair flags and per-room slot data
+  const roomHasRepairTargets: Record<string, boolean> = {};
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    roomHasRepairTargets[roomName] = room.find(FIND_STRUCTURES, {
+      filter: (s: AnyStructure) => s.hits < s.hitsMax * REPAIR_THRESHOLD
+    }).length > 0;
+  }
+
+  // Build repair allocation map from existing creep memory (persisted from last tick).
+  // Mutated during the creep loop when new repairTargetIds are assigned this tick.
+  const repairAllocations: Record<string, number> = {};
+  for (const name in Game.creeps) {
+    const id = Game.creeps[name].memory.repairTargetId;
+    if (id != null) repairAllocations[id] = (repairAllocations[id] ?? 0) + 1;
+  }
+
   for (const creepName in Game.creeps) {
     const creep = Game.creeps[creepName];
     const taskCounts = roomTaskCounts[creep.memory.room] ?? {};
-    const slots = {
+    const slots: RoomSlots = {
       taskCounts,
       economyTarget: roomEconomyTargets[creep.memory.room] ?? 1,
       hasBuildSites: creep.room?.find != null ? creep.room.find(FIND_CONSTRUCTION_SITES).length > 0 : false,
-      hasActiveStationaryUpgrader: (taskCounts.upgradeFromContainer ?? 0) > 0
+      hasActiveStationaryUpgrader: (taskCounts.upgradeFromContainer ?? 0) > 0,
+      hasRepairTargets: roomHasRepairTargets[creep.memory.room] ?? false
     };
+    const ctx: TickContext = { slots, repairAllocations };
 
     if (creep.memory.task == null) {
-      creep.memory.task = evaluateTask(creep, slots);
+      creep.memory.task = evaluateTask(creep, ctx);
     }
 
-    const done = runTask(creep);
+    const done = runTask(creep, ctx);
     if (done) {
       // Re-evaluate and immediately execute the new task in the same tick so
       // the creep does not idle for a tick at the source after filling up.
-      creep.memory.task = evaluateTask(creep, slots);
-      runTask(creep);
+      creep.memory.task = evaluateTask(creep, ctx);
+      runTask(creep, ctx);
     }
   }
 });

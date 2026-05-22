@@ -16,7 +16,7 @@ const creepMemoryWithTask: CreepMemory = {
 };
 
 // @ts-expect-error TaskType should still reject unsupported tasks
-const invalidTask: TaskType = "repair";
+const invalidTask: TaskType = "fly";
 
 describe("types", () => {
   it("accepts minimal CreepMemory with only room field", () => {

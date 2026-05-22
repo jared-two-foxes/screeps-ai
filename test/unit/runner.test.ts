@@ -3,6 +3,20 @@ import { runTask } from "../../src/tasks/runner";
 import { Game, Memory } from "./mock";
 
 // ---------------------------------------------------------------------------
+// Minimal TickContext for runner tests (repair task not exercised here)
+// ---------------------------------------------------------------------------
+const makeCtx = (): any => ({
+  slots: {
+    taskCounts: {},
+    economyTarget: 1,
+    hasBuildSites: false,
+    hasActiveStationaryUpgrader: false,
+    hasRepairTargets: false
+  },
+  repairAllocations: {}
+});
+
+// ---------------------------------------------------------------------------
 // Minimal creep that records which task-level API calls are made
 // ---------------------------------------------------------------------------
 const makeCreep = (task: TaskType | undefined, energyCarried: number): any => ({
@@ -53,7 +67,7 @@ describe("runTask", () => {
       }
     };
 
-    const done = runTask(creep as any);
+    const done = runTask(creep as any, makeCtx());
 
     assert.isFalse(done);
     assert.equal(harvestCalls, 1);
@@ -77,7 +91,7 @@ describe("runTask", () => {
       }
     };
 
-    const done = runTask(creep as any);
+    const done = runTask(creep as any, makeCtx());
 
     assert.isFalse(done);
     assert.equal(transferCalls, 1);
@@ -96,7 +110,7 @@ describe("runTask", () => {
       }
     };
 
-    const done = runTask(creep as any);
+    const done = runTask(creep as any, makeCtx());
 
     assert.isFalse(done);
     assert.equal(upgradeCalls, 1);
@@ -123,7 +137,7 @@ describe("runTask", () => {
       moveTo: (): number => 0
     };
 
-    const done = runTask(creep as any);
+    const done = runTask(creep as any, makeCtx());
 
     assert.isFalse(done);
     assert.equal(harvestCalls, 1);
@@ -151,7 +165,7 @@ describe("runTask", () => {
       moveTo: (): number => 0
     };
 
-    const done = runTask(creep as any);
+    const done = runTask(creep as any, makeCtx());
 
     assert.isFalse(done);
     assert.equal(pickupCalls, 1);
@@ -188,7 +202,7 @@ describe("runTask", () => {
       harvest: (): number => 0
     };
 
-    const done = runTask(creep as any);
+    const done = runTask(creep as any, makeCtx());
 
     assert.isFalse(done);
     assert.equal(buildCalls, 1);
@@ -203,17 +217,17 @@ describe("runTask", () => {
       ...makeCreep("harvest", 0),
       store: { getFreeCapacity: (): number => 0 }
     };
-    assert.isTrue(runTask(creep as any));
+    assert.isTrue(runTask(creep as any, makeCtx()));
   });
 
   it("returns true for 'deposit' when store is empty", () => {
     const creep = makeCreep("deposit", 0);
-    assert.isTrue(runTask(creep as any));
+    assert.isTrue(runTask(creep as any, makeCtx()));
   });
 
   it("returns true for 'upgrade' when empty and no energy source available", () => {
     const creep = makeCreep("upgrade", 0); // no storage, no active source
-    assert.isTrue(runTask(creep as any));
+    assert.isTrue(runTask(creep as any, makeCtx()));
   });
 
   // -------------------------------------------------------------------------
@@ -222,6 +236,6 @@ describe("runTask", () => {
 
   it("returns true when task is undefined (forces re-evaluation)", () => {
     const creep = makeCreep(undefined, 0);
-    assert.isTrue(runTask(creep as any));
+    assert.isTrue(runTask(creep as any, makeCtx()));
   });
 });

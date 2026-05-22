@@ -3,6 +3,7 @@ import { runDepositTask } from "tasks/deposit";
 import { runForageTask } from "tasks/forage";
 import { runHarvestTask } from "tasks/harvest";
 import { runHarvestAndDepositTask } from "tasks/harvestAndDeposit";
+import { runRepairTask } from "tasks/repair";
 import { runUpgradeTask } from "tasks/upgrade";
 import { runUpgradeFromContainerTask } from "tasks/upgradeFromContainer";
 
@@ -11,7 +12,7 @@ import { runUpgradeFromContainerTask } from "tasks/upgradeFromContainer";
  * Returns true when the task is complete and the caller should re-evaluate.
  * An unknown or missing task is treated as complete to force re-evaluation.
  */
-export const runTask = (creep: Creep): boolean => {
+export const runTask = (creep: Creep, ctx: TickContext): boolean => {
   switch (creep.memory.task) {
     case "harvest":
       return runHarvestTask(creep);
@@ -25,6 +26,8 @@ export const runTask = (creep: Creep): boolean => {
       return runForageTask(creep);
     case "build":
       return runBuildTask(creep);
+    case "repair":
+      return runRepairTask(creep, ctx);
     case "upgradeFromContainer":
       return runUpgradeFromContainerTask(creep);
     default:

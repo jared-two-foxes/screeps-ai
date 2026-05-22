@@ -50,13 +50,17 @@ const makeSlots = (opts: {
   hasBuildSites?: boolean;
   hasControllerContainer?: boolean;
   hasActiveStationaryUpgrader?: boolean;
+  hasRepairTargets?: boolean;
 }): any => ({
   taskCounts: opts.taskCounts ?? {},
   economyTarget: opts.economyTarget ?? 1,
   hasBuildSites: opts.hasBuildSites ?? false,
   hasControllerContainer: opts.hasControllerContainer ?? false,
-  hasActiveStationaryUpgrader: opts.hasActiveStationaryUpgrader ?? false
+  hasActiveStationaryUpgrader: opts.hasActiveStationaryUpgrader ?? false,
+  hasRepairTargets: opts.hasRepairTargets ?? false
 });
+
+const makeCtx = (slots: any): any => ({ slots, repairAllocations: {} });
 
 // ---------------------------------------------------------------------------
 // Creep factory
@@ -143,13 +147,13 @@ describe("evaluateTask (body-aware dispatch)", () => {
     it("stationaryHarvester body always returns 'harvestAndDeposit'", () => {
       const creep = makeCreep({ body: SH_BODY });
       const slots = makeSlots({});
-      assert.equal(evaluateTask(creep, slots), "harvestAndDeposit");
+      assert.equal(evaluateTask(creep, makeCtx(slots)), "harvestAndDeposit");
     });
 
     it("stationaryUpgrader body always returns 'upgradeFromContainer'", () => {
       const creep = makeCreep({ body: SU_BODY });
       const slots = makeSlots({});
-      assert.equal(evaluateTask(creep, slots), "upgradeFromContainer");
+      assert.equal(evaluateTask(creep, makeCtx(slots)), "upgradeFromContainer");
     });
 
     it("hauler body with energy and spawn has room → 'deposit'", () => {
@@ -162,13 +166,13 @@ describe("evaluateTask (body-aware dispatch)", () => {
         spawns: [spawn]
       });
       const slots = makeSlots({});
-      assert.equal(evaluateTask(creep, slots), "deposit");
+      assert.equal(evaluateTask(creep, makeCtx(slots)), "deposit");
     });
 
     it("hauler body with no energy → 'forage'", () => {
       const creep = makeCreep({ body: HAULER_BODY, energyCarried: 0 });
       const slots = makeSlots({});
-      assert.equal(evaluateTask(creep, slots), "forage");
+      assert.equal(evaluateTask(creep, makeCtx(slots)), "forage");
     });
 
     it("hauler body with energy → always returns 'deposit' (deposit task handles target selection)", () => {
@@ -178,7 +182,7 @@ describe("evaluateTask (body-aware dispatch)", () => {
         spawns: []
       });
       const slots = makeSlots({});
-      assert.equal(evaluateTask(creep, slots), "deposit");
+      assert.equal(evaluateTask(creep, makeCtx(slots)), "deposit");
     });
   });
 
@@ -195,7 +199,7 @@ describe("evaluateTask (body-aware dispatch)", () => {
         roomEnergyCapacity: 300
       });
       const slots = makeSlots({});
-      assert.equal(evaluateTask(creep, slots), "deposit");
+      assert.equal(evaluateTask(creep, makeCtx(slots)), "deposit");
     });
 
     it("worker body, room at 20% capacity, no energy → 'harvest'", () => {
@@ -208,7 +212,7 @@ describe("evaluateTask (body-aware dispatch)", () => {
         sources: [source]
       });
       const slots = makeSlots({});
-      assert.equal(evaluateTask(creep, slots), "harvest");
+      assert.equal(evaluateTask(creep, makeCtx(slots)), "harvest");
     });
 
     it("worker body, room above 30% → does NOT trigger emergency override, falls to slot fill", () => {
@@ -223,7 +227,7 @@ describe("evaluateTask (body-aware dispatch)", () => {
         taskCounts: { harvest: 1, upgrade: 0 },
         hasActiveStationaryUpgrader: false
       });
-      assert.equal(evaluateTask(creep, slots), "upgrade");
+      assert.equal(evaluateTask(creep, makeCtx(slots)), "upgrade");
     });
   });
 
@@ -253,7 +257,7 @@ describe("evaluateTask (body-aware dispatch)", () => {
         hasBuildSites: false,
         hasActiveStationaryUpgrader: false
       });
-      const result = evaluateTask(creep, slots);
+      const result = evaluateTask(creep, makeCtx(slots));
       assert.equal(result, "harvest");
       assert.isNotNull(creep.memory.sourceId, "sourceId should be pinned after harvest assignment");
       assert.isDefined(creep.memory.sourceId, "sourceId should be defined after harvest assignment");
@@ -271,7 +275,7 @@ describe("evaluateTask (body-aware dispatch)", () => {
         taskCounts: { harvest: 1, upgrade: 0 },
         hasActiveStationaryUpgrader: false
       });
-      assert.equal(evaluateTask(creep, slots), "upgrade");
+      assert.equal(evaluateTask(creep, makeCtx(slots)), "upgrade");
     });
 
     it("harvest slot filled, creep has NO energy → 'harvest' (single-phase: refill first)", () => {
@@ -286,7 +290,7 @@ describe("evaluateTask (body-aware dispatch)", () => {
         taskCounts: { harvest: 1, upgrade: 0 },
         hasActiveStationaryUpgrader: false
       });
-      assert.equal(evaluateTask(creep, slots), "harvest");
+      assert.equal(evaluateTask(creep, makeCtx(slots)), "harvest");
     });
 
     it("harvest filled, stationaryUpgrader active, no build sites, creep has energy → 'upgrade'", () => {
@@ -302,7 +306,7 @@ describe("evaluateTask (body-aware dispatch)", () => {
         hasActiveStationaryUpgrader: true,
         hasBuildSites: false
       });
-      assert.equal(evaluateTask(creep, slots), "upgrade");
+      assert.equal(evaluateTask(creep, makeCtx(slots)), "upgrade");
     });
 
     it("harvest filled, stationaryUpgrader active, build sites present, creep has energy → 'build'", () => {
@@ -318,7 +322,7 @@ describe("evaluateTask (body-aware dispatch)", () => {
         hasActiveStationaryUpgrader: true,
         hasBuildSites: true
       });
-      assert.equal(evaluateTask(creep, slots), "build");
+      assert.equal(evaluateTask(creep, makeCtx(slots)), "build");
     });
 
     it("harvest filled, no stationaryUpgrader but upgrade minimum met (≥1 upgrader), creep has energy → 'upgrade'", () => {
@@ -334,7 +338,7 @@ describe("evaluateTask (body-aware dispatch)", () => {
         hasActiveStationaryUpgrader: false,
         hasBuildSites: false
       });
-      assert.equal(evaluateTask(creep, slots), "upgrade");
+      assert.equal(evaluateTask(creep, makeCtx(slots)), "upgrade");
     });
 
     it("non-harvest task clears sourceId from creep memory", () => {
@@ -350,7 +354,7 @@ describe("evaluateTask (body-aware dispatch)", () => {
         taskCounts: { harvest: 1, upgrade: 0 },
         hasActiveStationaryUpgrader: false
       });
-      evaluateTask(creep, slots);
+      evaluateTask(creep, makeCtx(slots));
       assert.isUndefined(creep.memory.sourceId, "sourceId should be cleared when not harvesting");
     });
   });

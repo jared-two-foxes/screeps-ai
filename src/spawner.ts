@@ -490,7 +490,8 @@ const inactiveQueue: SpawnQueueRole[] = [
       const workPerCreep = Math.max(countWorkPartsInBody(ctx.workerBody), 1);
       return ctx.sources.reduce((sum, source) => {
         const workCap = ctx.neededWorkCapPerSource[source.id] ?? SOURCE_WORK_SATURATION;
-        return sum + Math.min(Math.ceil(workCap / workPerCreep), SOURCE_WORK_SATURATION);
+        const tileCap = ctx.walkableTilesBySource[source.id] ?? 8;
+        return sum + Math.min(Math.ceil(workCap / workPerCreep), tileCap);
       }, 0);
     },
     pickSourceId: ctx => pickLeastSaturatedSource(ctx, ctx.sources, ctx.neededWorkCapPerSource)
@@ -531,7 +532,8 @@ const containerQueue: SpawnQueueRole[] = [
         const workCap = ctx.containerSourceIds.has(source.id)
           ? SOURCE_WORK_SATURATION
           : (ctx.neededWorkCapPerSource[source.id] ?? SOURCE_WORK_SATURATION);
-        return sum + Math.min(Math.ceil(workCap / workPerCreep), SOURCE_WORK_SATURATION);
+        const tileCap = ctx.walkableTilesBySource[source.id] ?? 8;
+        return sum + Math.min(Math.ceil(workCap / workPerCreep), tileCap);
       }, 0);
     },
     pickSourceId: ctx => {

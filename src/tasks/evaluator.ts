@@ -2,13 +2,6 @@ import { classifyBody } from "utils/bodyClass";
 
 const EMERGENCY_THRESHOLD = 0.3;
 
-interface RoomSlots {
-  taskCounts: Partial<Record<string, number>>;
-  economyTarget: number;
-  hasBuildSites: boolean;
-  hasActiveStationaryUpgrader: boolean;
-}
-
 const assignHarvestSource = (creep: Creep, sources: Source[]): void => {
   if (creep.memory.sourceId != null) return;
   if (sources.length === 0) return;
@@ -31,7 +24,8 @@ const assignHarvestSource = (creep: Creep, sources: Source[]): void => {
   }
 };
 
-export const evaluateTask = (creep: Creep, slots: RoomSlots): TaskType => {
+export const evaluateTask = (creep: Creep, ctx: TickContext): TaskType => {
+  const slots = ctx.slots;
   const classify = classifyBody(creep);
 
   // Specialized body routing
@@ -39,8 +33,8 @@ export const evaluateTask = (creep: Creep, slots: RoomSlots): TaskType => {
   if (classify === "stationaryUpgrader") return "upgradeFromContainer";
 
   if (classify === "hauler") {
-    const hasEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
-    if (hasEnergy) return "deposit";
+    const haulerHasEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
+    if (haulerHasEnergy) return "deposit";
     return "forage";
   }
 
@@ -49,7 +43,7 @@ export const evaluateTask = (creep: Creep, slots: RoomSlots): TaskType => {
 
   if (ratio < EMERGENCY_THRESHOLD) {
     if (creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0) return "deposit";
-    const sources = creep.room.find(FIND_SOURCES_ACTIVE) ;
+    const sources = creep.room.find(FIND_SOURCES_ACTIVE);
     assignHarvestSource(creep, sources);
     return "harvest";
   }
@@ -59,7 +53,7 @@ export const evaluateTask = (creep: Creep, slots: RoomSlots): TaskType => {
   // Slot fill — always route empty workers to harvest first
   const harvestCount = slots.taskCounts.harvest ?? 0;
   if (!hasEnergy || harvestCount < slots.economyTarget) {
-    const sources = creep.room.find(FIND_SOURCES) ;
+    const sources = creep.room.find(FIND_SOURCES);
     assignHarvestSource(creep, sources);
     return "harvest";
   }
@@ -68,6 +62,11 @@ export const evaluateTask = (creep: Creep, slots: RoomSlots): TaskType => {
   if (!slots.hasActiveStationaryUpgrader && (slots.taskCounts.upgrade ?? 0) < 1) {
     delete creep.memory.sourceId;
     return "upgrade";
+  }
+
+  if (slots.hasRepairTargets) {
+    delete creep.memory.sourceId;
+    return "repair";
   }
 
   if (slots.hasBuildSites) {

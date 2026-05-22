@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { computeExtensionPlan, runBuildTask } from "../../src/tasks/build";
+import { computeExtensionPlan, ensureSourceContainerSites, runBuildTask } from "../../src/tasks/build";
 import { Game, Memory } from "./mock";
 
 describe("runBuildTask", () => {
@@ -183,16 +183,7 @@ describe("runBuildTask", () => {
       lookForAt: (): object[] => []
     };
 
-    const creep = {
-      memory: {},
-      room,
-      store: { getUsedCapacity: (): number => 50 },
-      pos: { findClosestByRange: (): null => null },
-      build: (): number => 0,
-      moveTo: (): number => 0
-    };
-
-    runBuildTask(creep as any);
+    ensureSourceContainerSites(room as any);
 
     assert.equal(createCalls.length, 2);
     assert.isTrue(createCalls.every(c => c.type === (global as any).STRUCTURE_CONTAINER));
@@ -236,16 +227,7 @@ describe("runBuildTask", () => {
       }
     };
 
-    const creep = {
-      memory: {},
-      room,
-      store: { getUsedCapacity: (): number => 50 },
-      pos: { findClosestByRange: (): null => null },
-      build: (): number => 0,
-      moveTo: (): number => 0
-    };
-
-    runBuildTask(creep as any);
+    ensureSourceContainerSites(room as any);
 
     assert.equal(createCalls.length, 1);
     assert.deepEqual(createCalls[0], {

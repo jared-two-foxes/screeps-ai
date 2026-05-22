@@ -106,7 +106,7 @@ export const computeExtensionPlan = (room: Room): void => {
  * built or under construction.  No PathFinder calls — pure Memory read + API
  * calls only.
  */
-const placeExtensionSites = (room: Room): void => {
+export const placeExtensionSites = (room: Room): void => {
   const plan = Memory.extensionPlan?.[room.name];
   if (plan == null) return;
 
@@ -160,6 +160,23 @@ const findOpenAdjacentTile = (room: Room, source: { pos: { x: number; y: number 
 };
 
 /**
+ * Places construction sites for missing source containers unconditionally.
+ * Called from the room-level tick loop in main.ts so containers are re-queued
+ * even when no creep is currently assigned the "build" task.
+ */
+export const ensureSourceContainerSites = (room: Room): void => {
+  const sources = room.find(FIND_SOURCES);
+  for (const source of sources) {
+    if (!hasAdjacentContainerCoverage(source)) {
+      const openTile = findOpenAdjacentTile(room, source);
+      if (openTile != null) {
+        room.createConstructionSite(openTile.x, openTile.y, STRUCTURE_CONTAINER);
+      }
+    }
+  }
+};
+
+/**
  * Build task — places missing source containers and builds room construction sites.
  * Single-phase: assumes the creep arrives with energy. Returns true immediately
  * if the store is empty (re-evaluate → harvest/forage) or when there is nothing
@@ -179,14 +196,6 @@ export const runBuildTask = (creep: Creep): boolean => {
 
   const sources = creep.room.find(FIND_SOURCES);
   const uncoveredSources = sources.filter(source => !hasAdjacentContainerCoverage(source));
-
-  for (const source of uncoveredSources) {
-    const openTile = findOpenAdjacentTile(creep.room, source);
-    if (openTile != null) {
-      creep.room.createConstructionSite(openTile.x, openTile.y, STRUCTURE_CONTAINER);
-    }
-  }
-
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
 
   if (constructionSites.length === 0 && uncoveredSources.length === 0) {
